@@ -1,0 +1,169 @@
+# سيبر مكة — Supabase مفتوح المصدر (نسخة خفيفة: قاعدة البيانات + الدخول + REST + الصور)
+#
+# منفصلة تمامًا عن ليلتنا: مشروع docker لوحده (maka)، قاعدة بيانات لوحدها، كلمات سر ومفاتيح جديدة.
+# نفس إصدارات الصور اللي شغالة في ليلتنا (/opt/supabase).
+# مفيش ولا بورت مفتوح على السيرفر: Caddy الموجود (supabase-caddy) بيوصل لـ maka-auth / maka-rest / maka-storage
+# عن طريق شبكة leletna-web-net (اللي فيها Caddy + الموقع بس). قاعدة البيانات مش على الشبكة دي أصلاً.
+name: maka
+
+services:
+  db:
+    container_name: maka-db
+    image: supabase/postgres:15.8.1.085
+    restart: unless-stopped
+    volumes:
+      - ./volumes/db/init/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:Z
+      - ./volumes/db/init/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:Z
+      - ./volumes/db/data:/var/lib/postgresql/data:Z
+      - db-config:/etc/postgresql-custom
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    environment:
+      POSTGRES_HOST: /var/run/postgresql
+      PGPORT: 5432
+      POSTGRES_PORT: 5432
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: postgres
+      POSTGRES_DB: postgres
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXP: ${JWT_EXPIRY:-3600}
+    command:
+      - "postgres"
+      - "-c"
+      - "config_file=/etc/postgresql/postgresql.conf"
+      - "-c"
+      - "log_min_messages=fatal"
+    networks:
+      - default
+
+  auth:
+    container_name: maka-auth
+    image: supabase/gotrue:v2.186.0
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9999/health"]
+      timeout: 5s
+      interval: 5s
+      retries: 3
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: ${API_EXTERNAL_URL}
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@db:5432/postgres
+      GOTRUE_SITE_URL: ${SITE_URL}
+      GOTRUE_URI_ALLOW_LIST: ""
+      # حسابات الأدمن بتتعمل من السيرفر بس (scripts/create_admin.sh) — مفيش تسجيل من برا
+      GOTRUE_DISABLE_SIGNUP: "true"
+      # كلمة السر الأولى ممكن تكون "admin" — التطبيق بيجبره يغيّرها (8+ حروف) أول ما يدخل
+      GOTRUE_PASSWORD_MIN_LENGTH: "5"
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: ${JWT_EXPIRY:-3600}
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+      GOTRUE_JWT_ISSUER: ${API_EXTERNAL_URL}/auth/v1
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: "false"
+      GOTRUE_MAILER_AUTOCONFIRM: "true"
+      GOTRUE_EXTERNAL_PHONE_ENABLED: "false"
+      GOTRUE_SMS_AUTOCONFIRM: "false"
+      # إيميل الأكواد (نسيت كلمة السر / تغيير الإيميل) — scripts/set_smtp.sh بيحط القيم في .env
+      GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_USER:-noreply@localhost}
+      GOTRUE_SMTP_HOST: ${SMTP_HOST:-localhost}
+      GOTRUE_SMTP_PORT: ${SMTP_PORT:-2500}
+      GOTRUE_SMTP_USER: ${SMTP_USER:-}
+      GOTRUE_SMTP_PASS: ${SMTP_PASS:-}
+      GOTRUE_SMTP_SENDER_NAME: "سيبر مكة"
+      # كود 6 أرقام بالعربي (من غير روابط)، صالح 10 دقايق؛ تغيير الإيميل بيتأكد على الإيميل الجديد
+      GOTRUE_MAILER_OTP_EXP: "600"
+      GOTRUE_MAILER_OTP_LENGTH: "6"
+      GOTRUE_MAILER_SECURE_EMAIL_CHANGE_ENABLED: "false"
+      GOTRUE_MAILER_SUBJECTS_RECOVERY: "كود استعادة كلمة السر — سيبر مكة"
+      GOTRUE_MAILER_SUBJECTS_EMAIL_CHANGE: "كود تأكيد الإيميل الجديد — سيبر مكة"
+      GOTRUE_MAILER_TEMPLATES_RECOVERY: ${SITE_URL}/email/recovery.html
+      GOTRUE_MAILER_TEMPLATES_EMAIL_CHANGE: ${SITE_URL}/email/email-change.html
+      GOTRUE_RATE_LIMIT_EMAIL_SENT: "30"
+      GOTRUE_RATE_LIMIT_TOKEN_REFRESH: "300"
+    networks:
+      default:
+      edge:
+        aliases: [maka-auth]
+
+  rest:
+    container_name: maka-rest
+    image: postgrest/postgrest:v14.8
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@db:5432/postgres
+      # الدوال (RPC) في public بس — مفيش جداول مكشوفة
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_MAX_ROWS: 1000
+      PGRST_DB_EXTRA_SEARCH_PATH: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET}
+      PGRST_APP_SETTINGS_JWT_EXP: ${JWT_EXPIRY:-3600}
+    command:
+      - "postgrest"
+    networks:
+      default:
+      edge:
+        aliases: [maka-rest]
+
+  storage:
+    container_name: maka-storage
+    image: supabase/storage-api:v1.48.26
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      rest:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://storage:5000/status"]
+      timeout: 5s
+      interval: 5s
+      retries: 3
+      start_period: 10s
+    environment:
+      ANON_KEY: ${ANON_KEY}
+      SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      POSTGREST_URL: http://rest:3000
+      AUTH_JWT_SECRET: ${JWT_SECRET}
+      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@db:5432/postgres
+      STORAGE_PUBLIC_URL: ${API_EXTERNAL_URL}
+      REQUEST_ALLOW_X_FORWARDED_PATH: "true"
+      FILE_SIZE_LIMIT: 5242880
+      STORAGE_BACKEND: file
+      GLOBAL_S3_BUCKET: stub
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      TENANT_ID: stub
+      REGION: stub
+      ENABLE_IMAGE_TRANSFORMATION: "false"
+    volumes:
+      - ./volumes/storage:/var/lib/storage:z
+    networks:
+      default:
+      edge:
+        aliases: [maka-storage]
+
+volumes:
+  db-config:
+
+networks:
+  default:
+  edge:
+    name: ${EDGE_NETWORK:-leletna-web-net}
+    external: true

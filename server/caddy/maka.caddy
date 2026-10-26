@@ -1,0 +1,109 @@
+# سيبر مكة — بيتعمله import من Caddyfile بتاع السيرفر (Caddy بتاع ليلتنا هو اللي ماسك 80/443).
+# __DOMAIN__ بيتبدّل بالدومين الحقيقي وقت التركيب (scripts/install.sh).
+#   https://__DOMAIN__       → الموقع + /api/<دوال الحجز> + /photos/<صور الفروع>
+#   https://api.__DOMAIN__   → تطبيق الأدمن (الدخول + RPC + رفع الصور)
+
+www.__DOMAIN__ {
+	redir https://__DOMAIN__{uri} permanent
+}
+
+__DOMAIN__ {
+	encode zstd gzip
+
+	# الموقع بيكلّم نفس الدومين بس (CSP connect-src 'self') → PostgREST كـ anon، لدوال الحجز المسموحة بس.
+	# Caddy بيحط IP الزائر الحقيقي في X-Forwarded-For (حد الطلبات على السيرفر).
+	@webfn {
+		path_regexp webfn ^/api/(web_catalog|web_slots|web_create_booking|web_booking_status|web_claim_paid|web_cancel_booking)$
+		method POST
+	}
+	handle @webfn {
+		request_body {
+			max_size 8KB
+		}
+		rewrite * /rpc/{re.webfn.1}
+		reverse_proxy maka-rest:3000 {
+			header_up -Authorization
+			header_up -apikey
+			header_up -Cookie
+			header_up -Prefer
+			header_up -Accept-Profile
+			header_up -Content-Profile
+			header_up Content-Type application/json
+			header_up Accept application/json
+		}
+	}
+	handle /api/* {
+		respond 404
+	}
+
+	# صور الفروع (bucket عام "photos") من نفس الدومين
+	handle_path /photos/* {
+		rewrite * /object/public/photos{path}
+		reverse_proxy maka-storage:5000 {
+			header_up -Authorization
+			header_up -apikey
+			header_up -Cookie
+		}
+	}
+
+	handle {
+		root * /etc/caddy/maka/site
+		try_files {path} {path}.html {path}/index.html
+		file_server
+	}
+
+	header {
+		-server
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "SAMEORIGIN"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; object-src 'none'; form-action 'self'"
+	}
+}
+
+api.__DOMAIN__ {
+	# مفيش تسجيل حسابات من برا (الأدمن بيتعمل من السيرفر بس).
+	# /auth/v1/recover مفتوح: «نسيت كلمة السر» — بيبعت كود للإيميلات المسجلة بس (وبحد مرات من GoTrue)
+	@blocked path /auth/v1/signup /auth/v1/otp /auth/v1/magiclink /auth/v1/resend /auth/v1/admin/*
+	handle @blocked {
+		respond "Not found" 404
+	}
+	handle_path /auth/v1/* {
+		reverse_proxy maka-auth:9999
+	}
+	handle_path /rest/v1/* {
+		reverse_proxy maka-rest:3000
+	}
+	handle_path /storage/v1/* {
+		request_body {
+			max_size 6MB
+		}
+		reverse_proxy maka-storage:5000
+	}
+	# فحص للمراقبة (UptimeRobot …)
+	@health {
+		path /health
+		method GET HEAD
+	}
+	handle @health {
+		rewrite * /rpc/health
+		reverse_proxy maka-rest:3000 {
+			header_up -Authorization
+			header_up -apikey
+		}
+	}
+	handle {
+		respond "Not found" 404
+	}
+
+	header {
+		-server
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		X-Frame-Options "DENY"
+		Content-Security-Policy "frame-ancestors 'none'; base-uri 'none'; object-src 'none'"
+	}
+}

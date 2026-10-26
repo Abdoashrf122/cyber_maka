@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>سيبر مكة — احجز جهازك أو غرفة البلايستيشن</title>
+  <meta name="description" content="احجز أجهزة PC أو غرف بلايستيشن في سيبر مكة — فرع فلمنج وفرع شارع 20 بالإسكندرية. اختار الفرع والميعاد واحجز في دقيقة.">
+  <meta property="og:title" content="سيبر مكة — احجز جهازك">
+  <meta property="og:description" content="أجهزة PC وغرف بلايستيشن — فرع فلمنج وفرع شارع 20">
+  <meta name="theme-color" content="#0b0b14">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <a class="logo" href="./"><span class="logo-mark" aria-hidden="true">🎮</span>سيبر مكة</a>
+      <nav>
+        <a href="#branches">الفروع</a>
+        <a href="#how">إزاي أحجز</a>
+        <a class="btn-top" href="#book">احجز دلوقتي</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="wrap">
+      <section class="hero">
+        <h1>العب براحتك في <span>سيبر مكة</span></h1>
+        <p>أجهزة PC للجيمنج وغرف بلايستيشن خاصة. اختار الفرع والميعاد، واحجز مكانك قبل ما تيجي.</p>
+        <a class="btn" href="#book">احجز مكانك</a>
+        <div class="chips">
+          <span class="chip">💻 أجهزة PC</span>
+          <span class="chip">🎮 غرف بلايستيشن</span>
+          <span class="chip">📍 فرعين في إسكندرية</span>
+        </div>
+      </section>
+
+      <div id="mine-box" class="hidden">
+        <section>
+          <h2>حجوزاتي</h2>
+          <div id="mine" class="mine"></div>
+        </section>
+      </div>
+
+      <section id="branches">
+        <h2>فروعنا<small id="branches-sub">الصور والأسعار واللوكيشن</small></h2>
+        <div id="branch-list" class="branches"><p class="empty-note">جاري التحميل…</p></div>
+      </section>
+
+      <section id="book">
+        <h2>احجز<small>الطلب بيوصل للفرع فورًا، ولما يوافق بتحوّل الـ deposit</small></h2>
+        <div class="panel">
+          <div id="closed" class="alert info hidden"></div>
+          <form id="form" novalidate>
+            <div class="step">
+              <span class="step-title"><span class="n">1</span>اختار الفرع</span>
+              <div id="pick-branch" class="choices"></div>
+            </div>
+
+            <div class="step hidden" id="step-off">
+              <span class="step-title"><span class="n">2</span>عايز تحجز إيه؟</span>
+              <div id="pick-off" class="choices"></div>
+            </div>
+
+            <div class="step hidden" id="step-qty">
+              <span class="step-title"><span class="n">3</span>العدد والمدة</span>
+              <div class="row" style="gap:18px">
+                <div id="units-box">
+                  <div class="muted" style="font-size:14px;margin-bottom:4px">عدد الأجهزة</div>
+                  <div class="stepper">
+                    <button type="button" id="u-minus" aria-label="أقل">−</button>
+                    <output id="units">1</output>
+                    <button type="button" id="u-plus" aria-label="أكتر">+</button>
+                  </div>
+                </div>
+                <div>
+                  <div class="muted" style="font-size:14px;margin-bottom:4px">المدة</div>
+                  <div class="stepper">
+                    <button type="button" id="d-minus" aria-label="أقل">−</button>
+                    <output id="duration">ساعة</output>
+                    <button type="button" id="d-plus" aria-label="أكتر">+</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="step hidden" id="step-day">
+              <span class="step-title"><span class="n">4</span>اليوم والساعة</span>
+              <div id="pick-day" class="days"></div>
+              <div id="slots-note" class="empty-note"></div>
+              <div id="pick-slot" class="slots"></div>
+            </div>
+
+            <div class="step hidden" id="step-info">
+              <span class="step-title"><span class="n">5</span>بياناتك</span>
+              <div class="field">
+                <label for="name">الاسم</label>
+                <input id="name" autocomplete="name" maxlength="40" required>
+              </div>
+              <div class="field">
+                <label for="phone">رقم الموبايل</label>
+                <input id="phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="16" placeholder="01xxxxxxxxx" dir="ltr" required>
+                <span class="hint">الفرع ممكن يكلمك عليه لو فيه أي تغيير.</span>
+              </div>
+              <div class="field">
+                <label for="note">ملاحظة (اختياري)</label>
+                <textarea id="note" rows="2" maxlength="200" placeholder="مثلاً: عايزين نلعب FIFA"></textarea>
+              </div>
+              <div id="summary" class="summary"></div>
+              <label class="check">
+                <input type="checkbox" id="agree">
+                <span id="policy-text"></span>
+              </label>
+              <div id="err" class="alert err hidden" role="alert"></div>
+              <button class="btn block" id="submit" type="submit">ابعت طلب الحجز</button>
+              <p class="muted" style="font-size:13px;margin:10px 0 0">بالضغط بتوافق على <a href="privacy.html">سياسة الخصوصية</a>. مش هتدفع حاجة غير لما الفرع يوافق.</p>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <section id="how">
+        <h2>الحجز بيمشي إزاي؟</h2>
+        <div class="how">
+          <div><b>اختار وابعت الطلب</b><span>الفرع والنوع والميعاد — الطلب بيوصل للمحل في نفس اللحظة.</span></div>
+          <div><b>المحل بيوافق</b><span>بتشوف الموافقة على صفحة طلبك، ومعاها طريقة تحويل الـ deposit.</span></div>
+          <div><b>حوّل الـ deposit</b><span>InstaPay أو Telda — الـ deposit بيتخصم من حسابك في المحل.</span></div>
+          <div><b>تعالى العب</b><span>أول ما التحويل يوصل الحجز بيتأكد، واعرض كود الحجز في الفرع.</span></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span>© سيبر مكة — الإسكندرية</span>
+      <span><a href="privacy.html">الخصوصية</a></span>
+    </div>
+  </footer>
+  <script type="module" src="assets/app.js"></script>
+</body>
+</html>

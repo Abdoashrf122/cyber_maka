@@ -1,0 +1,30 @@
+name: maka_admin
+description: "Cyber Maka admin (internal, not for Play)"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  supabase_flutter: ^2.8.4
+  audioplayers: ^6.7.1      # رنة الطلبات على الويندوز (الأندرويد بيرن من الخدمة الأصلية)
+  window_manager: ^0.5.2    # يجيب الشباك قدام لما يجي طلب
+  url_launcher: ^6.3.1      # اتصال / واتساب
+  image_picker: ^1.0.4      # صور الفروع
+  onesignal_flutter: 5.6.2  # إشعارات والتطبيق مقفول (أندرويد بس) — نفس نسخة ليلتنا
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/sounds/
