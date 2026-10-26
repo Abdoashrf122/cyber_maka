@@ -1278,13 +1278,21 @@ class _BranchEditorState extends State<BranchEditor> {
     if (selected.isEmpty || !mounted) return;
     setState(() => _photosBusy = true);
     try {
-      final photos = <Uint8List>[];
+      final photos = <({Uint8List original, Uint8List cropped})>[];
       for (var i = 0; i < selected.length; i++) {
         final original = await selected[i].readAsBytes();
         final prepared = await compute(_prepareBranchPhoto, original);
         if (!mounted) return;
         if (prepared == null) {
           toast(context, 'صيغة الصورة رقم ${i + 1} غير مدعومة.', error: true);
+          return;
+        }
+        if (prepared.length > 5 * 1024 * 1024) {
+          toast(
+            context,
+            'الصورة الأصلية رقم ${i + 1} أكبر من 5 ميجا بعد التجهيز.',
+            error: true,
+          );
           return;
         }
         final cropped = await _cropPhoto(prepared, i + 1, selected.length);
@@ -1297,26 +1305,48 @@ class _BranchEditorState extends State<BranchEditor> {
           );
           return;
         }
-        photos.add(cropped);
+        photos.add((original: prepared, cropped: cropped));
       }
 
       final timestamp = DateTime.now().microsecondsSinceEpoch;
-      await run(context, () async {
+      final uploadedPaths = <String>[];
+      var registrationAttempted = false;
+      final saved = await run(context, () async {
         for (var i = 0; i < photos.length; i++) {
-          final path = '${_b['slug'] ?? 'branch'}/$timestamp-$i.jpg';
+          registrationAttempted = false;
+          final slug = '${_b['slug'] ?? 'branch'}';
+          final path = '$slug/$timestamp-$i.jpg';
+          final originalPath = 'original/$slug/$timestamp-$i.jpg';
+          await sb.storage
+              .from('photos')
+              .uploadBinary(
+                originalPath,
+                photos[i].original,
+                fileOptions: const FileOptions(contentType: 'image/jpeg'),
+              );
+          uploadedPaths.add(originalPath);
           await sb.storage
               .from('photos')
               .uploadBinary(
                 path,
-                photos[i],
+                photos[i].cropped,
                 fileOptions: const FileOptions(contentType: 'image/jpeg'),
               );
-          await rpcOk('admin_add_photo', {
+          uploadedPaths.add(path);
+          registrationAttempted = true;
+          await rpcOk('admin_add_photo_with_original', {
             'p_branch': _b['id'],
             'p_path': path,
+            'p_original_path': originalPath,
           });
+          uploadedPaths.remove(originalPath);
+          uploadedPaths.remove(path);
+          registrationAttempted = false;
         }
       }, ok: photos.length == 1 ? 'الصورة اترفعت' : 'الصور اترفعت');
+      if (!saved && !registrationAttempted && uploadedPaths.isNotEmpty) {
+        await sb.storage.from('photos').remove(uploadedPaths);
+      }
       await _reload();
     } catch (e) {
       if (mounted) toast(context, 'حصل خطأ أثناء تجهيز الصور: $e', error: true);
@@ -1419,7 +1449,12 @@ class _BranchEditorState extends State<BranchEditor> {
     setState(() => _photosBusy = true);
     try {
       final path = '${photo['path']}';
-      final original = await sb.storage.from('photos').download(path);
+      final storedOriginalPath = photo['original_path'] as String?;
+      final originalPath =
+          storedOriginalPath == null || storedOriginalPath.isEmpty
+          ? path
+          : storedOriginalPath;
+      final original = await sb.storage.from('photos').download(originalPath);
       if (!mounted) return;
       final cropped = await _cropPhoto(original, 1, 1);
       if (cropped == null || !mounted) return;
@@ -1434,8 +1469,32 @@ class _BranchEditorState extends State<BranchEditor> {
         return;
       }
 
+      final backupPath =
+          storedOriginalPath == null || storedOriginalPath.isEmpty
+          ? 'original/${_b['slug'] ?? 'branch'}/${DateTime.now().microsecondsSinceEpoch}.jpg'
+          : null;
       final saved = await run(context, () async {
-        await rpcOk('admin_touch_photo', {'p_id': photo['id']});
+        if (backupPath != null) {
+          await sb.storage
+              .from('photos')
+              .uploadBinary(
+                backupPath,
+                original,
+                fileOptions: const FileOptions(contentType: 'image/jpeg'),
+              );
+          try {
+            await rpcOk('admin_set_photo_original', {
+              'p_id': photo['id'],
+              'p_original_path': backupPath,
+            });
+          } on ApiError {
+            await sb.storage.from('photos').remove([backupPath]);
+            rethrow;
+          } on StorageException {
+            await sb.storage.from('photos').remove([backupPath]);
+            rethrow;
+          }
+        }
         await sb.storage
             .from('photos')
             .uploadBinary(
@@ -1447,6 +1506,7 @@ class _BranchEditorState extends State<BranchEditor> {
                 cacheControl: '0',
               ),
             );
+        await rpcOk('admin_touch_photo', {'p_id': photo['id']});
       }, ok: 'اتحفظ القص الجديد');
       if (saved) await _reload();
     } catch (e) {
@@ -1468,8 +1528,12 @@ class _BranchEditorState extends State<BranchEditor> {
     if (!mounted) return;
     await run(context, () async {
       final r = await rpcOk('admin_delete_photo', {'p_id': p['id']});
-      if (r['path'] != null)
-        await sb.storage.from('photos').remove(['${r['path']}']);
+      final paths = <String>{
+        if (r['path'] != null) '${r['path']}',
+        if (r['original_path'] != null) '${r['original_path']}',
+      };
+      if (paths.isNotEmpty)
+        await sb.storage.from('photos').remove(paths.toList());
     });
     await _reload();
   }

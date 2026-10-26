@@ -93,6 +93,8 @@ CREATE TABLE IF NOT EXISTS private.branch_photos (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   branch_id uuid NOT NULL REFERENCES private.branches(id) ON DELETE CASCADE,
   path text NOT NULL CHECK (path ~ '^[A-Za-z0-9/_.-]{3,200}$'),
+  original_path text CONSTRAINT branch_photos_original_path_check
+    CHECK (original_path IS NULL OR original_path ~ '^original/[A-Za-z0-9-]{2,30}/[0-9]+(-[0-9]+)?\.jpg$'),
   caption text,
   sort int NOT NULL DEFAULT 0,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -100,6 +102,8 @@ CREATE TABLE IF NOT EXISTS private.branch_photos (
 );
 ALTER TABLE private.branch_photos
   ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE private.branch_photos
+  ADD COLUMN IF NOT EXISTS original_path text;
 
 -- اللي بيتحجز: أجهزة PC (عدد أجهزة) أو غرف بلايستيشن (غرفة كاملة)
 CREATE TABLE IF NOT EXISTS private.offerings (
@@ -1191,11 +1195,11 @@ END $$;
 
 CREATE OR REPLACE FUNCTION public.admin_delete_photo(p_id uuid) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = private, pg_temp AS $$
-DECLARE v_path text;
+DECLARE v_path text; v_original_path text;
 BEGIN
   PERFORM private._require_admin();
-  DELETE FROM private.branch_photos WHERE id = p_id RETURNING path INTO v_path;
-  RETURN jsonb_build_object('ok', v_path IS NOT NULL, 'path', v_path);
+  DELETE FROM private.branch_photos WHERE id = p_id RETURNING path, original_path INTO v_path, v_original_path;
+  RETURN jsonb_build_object('ok', v_path IS NOT NULL, 'path', v_path, 'original_path', v_original_path);
 END $$;
 
 -- جهاز جديد (موبايل المحل): التوكن بيظهر مرة واحدة بس، والسيرفر بيحفظ الـ hash
