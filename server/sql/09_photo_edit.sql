@@ -58,6 +58,31 @@ BEGIN
   RETURN jsonb_build_object('ok', true);
 END $$;
 
+CREATE OR REPLACE FUNCTION public.admin_replace_photo(
+  p_id uuid, p_path text, p_original_path text
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = private, pg_temp AS $$
+DECLARE v_path text; v_original_path text;
+BEGIN
+  PERFORM private._require_admin();
+  IF p_path IS NULL OR p_path !~ '^[A-Za-z0-9-]{2,30}/[0-9]+-[0-9]+\.jpg$'
+     OR p_original_path IS NULL
+     OR p_original_path !~ '^original/[A-Za-z0-9-]{2,30}/[0-9]+-[0-9]+\.jpg$' THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'bad_photo_path');
+  END IF;
+  SELECT path, original_path INTO v_path, v_original_path
+  FROM private.branch_photos
+  WHERE id = p_id
+  FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'not_found');
+  END IF;
+  UPDATE private.branch_photos
+  SET path = p_path, original_path = p_original_path, updated_at = clock_timestamp()
+  WHERE id = p_id;
+  RETURN jsonb_build_object('ok', true, 'path', v_path, 'original_path', v_original_path);
+END $$;
+
 CREATE OR REPLACE FUNCTION public.admin_touch_photo(p_id uuid) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = private, pg_temp AS $$
 DECLARE v_updated timestamptz;
@@ -79,5 +104,7 @@ REVOKE ALL ON FUNCTION public.admin_add_photo_with_original(uuid, text, text, te
 GRANT EXECUTE ON FUNCTION public.admin_add_photo_with_original(uuid, text, text, text) TO authenticated;
 REVOKE ALL ON FUNCTION public.admin_set_photo_original(uuid, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_set_photo_original(uuid, text) TO authenticated;
+REVOKE ALL ON FUNCTION public.admin_replace_photo(uuid, text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_replace_photo(uuid, text, text) TO authenticated;
 
 COMMIT;

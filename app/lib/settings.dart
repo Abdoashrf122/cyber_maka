@@ -1516,6 +1516,107 @@ class _BranchEditorState extends State<BranchEditor> {
     }
   }
 
+  Future<void> _replacePhoto(Map<String, dynamic> photo) async {
+    if (_photosBusy) return;
+    final selected = await ImagePicker().pickImage(source: ImageSource.gallery);
+    if (selected == null || !mounted) return;
+    setState(() => _photosBusy = true);
+    try {
+      final bytes = await selected.readAsBytes();
+      final original = await compute(_prepareBranchPhoto, bytes);
+      if (!mounted) return;
+      if (original == null) {
+        toast(context, 'صيغة الصورة غير مدعومة.', error: true);
+        return;
+      }
+      if (original.length > 5 * 1024 * 1024) {
+        toast(
+          context,
+          'الصورة الأصلية أكبر من 5 ميجا بعد التجهيز.',
+          error: true,
+        );
+        return;
+      }
+
+      final cropped = await _cropPhoto(original, 1, 1);
+      if (cropped == null || !mounted) return;
+      final normalized = await compute(_prepareBranchPhoto, cropped);
+      if (!mounted) return;
+      if (normalized == null) {
+        toast(context, 'صيغة الصورة بعد القص غير مدعومة.', error: true);
+        return;
+      }
+      if (normalized.length > 5 * 1024 * 1024) {
+        toast(context, 'الصورة أكبر من 5 ميجا بعد القص.', error: true);
+        return;
+      }
+
+      final timestamp = DateTime.now().microsecondsSinceEpoch;
+      final slug = '${_b['slug'] ?? 'branch'}';
+      final path = '$slug/$timestamp-0.jpg';
+      final originalPath = 'original/$slug/$timestamp-0.jpg';
+      final uploadedPaths = <String>[];
+      var replacementAttempted = false;
+      Map<String, dynamic>? previousPhoto;
+      final saved = await run(context, () async {
+        await sb.storage
+            .from('photos')
+            .uploadBinary(
+              originalPath,
+              original,
+              fileOptions: const FileOptions(contentType: 'image/jpeg'),
+            );
+        uploadedPaths.add(originalPath);
+        await sb.storage
+            .from('photos')
+            .uploadBinary(
+              path,
+              normalized,
+              fileOptions: const FileOptions(contentType: 'image/jpeg'),
+            );
+        uploadedPaths.add(path);
+        replacementAttempted = true;
+        previousPhoto = await rpcOk('admin_replace_photo', {
+          'p_id': photo['id'],
+          'p_path': path,
+          'p_original_path': originalPath,
+        });
+        replacementAttempted = false;
+      }, ok: 'اتبدلت الصورة');
+
+      if (!saved) {
+        if (!replacementAttempted && uploadedPaths.isNotEmpty) {
+          await sb.storage.from('photos').remove(uploadedPaths);
+        }
+        return;
+      }
+
+      final oldPaths = <String>{
+        if (previousPhoto?['path'] != null) '${previousPhoto!['path']}',
+        if (previousPhoto?['original_path'] != null)
+          '${previousPhoto!['original_path']}',
+      };
+      if (oldPaths.isNotEmpty) {
+        try {
+          await sb.storage.from('photos').remove(oldPaths.toList());
+        } catch (e) {
+          if (mounted) {
+            toast(
+              context,
+              'اتبدلت الصورة، لكن تعذر حذف النسخة القديمة: $e',
+              error: true,
+            );
+          }
+        }
+      }
+      await _reload();
+    } catch (e) {
+      if (mounted) toast(context, 'مقدرناش نبدل الصورة: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _photosBusy = false);
+    }
+  }
+
   Future<void> _deletePhoto(Map<String, dynamic> p) async {
     if (!await confirmDialog(
       context,
@@ -1778,6 +1879,17 @@ class _BranchEditorState extends State<BranchEditor> {
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
+                                    IconButton.filledTonal(
+                                      visualDensity: VisualDensity.compact,
+                                      tooltip: 'استبدال الصورة',
+                                      onPressed: _photosBusy
+                                          ? null
+                                          : () => _replacePhoto(p),
+                                      icon: const Icon(
+                                        Icons.swap_horiz,
+                                        size: 18,
+                                      ),
+                                    ),
                                     IconButton.filledTonal(
                                       visualDensity: VisualDensity.compact,
                                       tooltip: 'تعديل القص',
