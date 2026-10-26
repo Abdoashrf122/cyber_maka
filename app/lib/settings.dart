@@ -1,7 +1,10 @@
 import 'dart:async';
 
+import 'package:crop_your_image/crop_your_image.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -547,6 +550,14 @@ class _DevicesScreenState extends State<DevicesScreen> {
 
 String photoUrl(String path) => '$kApiUrl/storage/v1/object/public/photos/$path';
 
+Uint8List? _prepareBranchPhoto(Uint8List bytes) {
+  final decoded = img.decodeImage(bytes);
+  if (decoded == null) return null;
+  final oriented = img.bakeOrientation(decoded);
+  final resized = oriented.width > 1600 ? img.copyResize(oriented, width: 1600) : oriented;
+  return Uint8List.fromList(img.encodeJpg(resized, quality: 82));
+}
+
 class BranchesScreen extends StatefulWidget {
   const BranchesScreen({super.key});
   @override
@@ -608,6 +619,7 @@ class _BranchEditorState extends State<BranchEditor> {
   late Map<String, dynamic> _b = Map<String, dynamic>.from(widget.branch ?? {'open_24h': true, 'is_active': true});
   final _c = <String, TextEditingController>{};
   bool _busy = false;
+  bool _photosBusy = false;
 
   static const _keys = ['name', 'address', 'maps_url', 'phone', 'whatsapp', 'hours_text', 'open_time', 'close_time', 'sort'];
 
@@ -644,23 +656,126 @@ class _BranchEditorState extends State<BranchEditor> {
 
   Future<void> _addPhoto() async {
     if (_b['id'] == null) return toast(context, 'احفظ الفرع الأول', error: true);
-    final x = await ImagePicker().pickImage(source: ImageSource.gallery, maxWidth: 1600, imageQuality: 82);
-    if (x == null || !mounted) return;
-    final bytes = await x.readAsBytes();
-    if (bytes.length > 5 * 1024 * 1024) {
-      if (mounted) toast(context, 'الصورة أكبر من 5 ميجا', error: true);
-      return;
+    if (_photosBusy) return;
+    final selected = await ImagePicker().pickMultiImage();
+    if (selected.isEmpty || !mounted) return;
+    setState(() => _photosBusy = true);
+    try {
+      final photos = <Uint8List>[];
+      for (var i = 0; i < selected.length; i++) {
+        final original = await selected[i].readAsBytes();
+        final prepared = await compute(_prepareBranchPhoto, original);
+        if (!mounted) return;
+        if (prepared == null) {
+          toast(context, 'صيغة الصورة رقم ${i + 1} غير مدعومة.', error: true);
+          return;
+        }
+        final cropped = await _cropPhoto(prepared, i + 1, selected.length);
+        if (cropped == null || !mounted) return;
+        if (cropped.length > 5 * 1024 * 1024) {
+          toast(context, 'الصورة رقم ${i + 1} أكبر من 5 ميجا بعد القص.', error: true);
+          return;
+        }
+        photos.add(cropped);
+      }
+
+      final timestamp = DateTime.now().microsecondsSinceEpoch;
+      await run(context, () async {
+        for (var i = 0; i < photos.length; i++) {
+          final path = '${_b['slug'] ?? 'branch'}/$timestamp-$i.jpg';
+          await sb.storage.from('photos').uploadBinary(
+                path,
+                photos[i],
+                fileOptions: const FileOptions(contentType: 'image/jpeg'),
+              );
+          await rpcOk('admin_add_photo', {'p_branch': _b['id'], 'p_path': path});
+        }
+      }, ok: photos.length == 1 ? 'الصورة اترفعت' : 'الصور اترفعت');
+      await _reload();
+    } catch (e) {
+      if (mounted) toast(context, 'حصل خطأ أثناء تجهيز الصور: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _photosBusy = false);
     }
-    final name = x.name.toLowerCase();
-    final ext = name.endsWith('.png') ? 'png' : name.endsWith('.webp') ? 'webp' : 'jpg';
-    final type = ext == 'png' ? 'image/png' : ext == 'webp' ? 'image/webp' : 'image/jpeg';
-    final path = '${_b['slug'] ?? 'branch'}/${DateTime.now().millisecondsSinceEpoch}.$ext';
-    if (!mounted) return;
-    await run(context, () async {
-      await sb.storage.from('photos').uploadBinary(path, bytes, fileOptions: FileOptions(contentType: type));
-      await rpcOk('admin_add_photo', {'p_branch': _b['id'], 'p_path': path});
-    }, ok: 'الصورة اترفعت');
-    await _reload();
+  }
+
+  Future<Uint8List?> _cropPhoto(Uint8List bytes, int index, int total) {
+    final controller = CropController();
+    var ready = false;
+    var processing = false;
+    String? cropError;
+
+    return showDialog<Uint8List>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: Text('قص الصورة $index من $total'),
+          content: SizedBox(
+            width: 640,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Text('حرّك الصورة وكبّرها لحد ما تظهر بالشكل اللي يعجبك.'),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 340,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Crop(
+                    image: bytes,
+                    controller: controller,
+                    aspectRatio: 16 / 10,
+                    interactive: true,
+                    fixCropRect: true,
+                    baseColor: const Color(0xFF11111B),
+                    maskColor: Colors.black.withValues(alpha: 0.55),
+                    progressIndicator: const Center(child: CircularProgressIndicator()),
+                    onStatusChanged: (status) {
+                      if (status == CropStatus.ready && !ready) {
+                        setDialogState(() => ready = true);
+                      }
+                    },
+                    onCropped: (result) {
+                      switch (result) {
+                        case CropSuccess(:final croppedImage):
+                          Navigator.of(dialogContext).pop(croppedImage);
+                        case CropFailure(:final cause):
+                          setDialogState(() {
+                            processing = false;
+                            cropError = 'مقدرناش نقص الصورة: $cause';
+                          });
+                      }
+                    },
+                  ),
+                ),
+              ),
+              if (cropError != null) ...[
+                const SizedBox(height: 8),
+                Text(cropError!, style: const TextStyle(color: Color(0xFFF87171))),
+              ],
+            ]),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('إلغاء الصور'),
+            ),
+            FilledButton.icon(
+              onPressed: ready && !processing
+                  ? () {
+                      setDialogState(() {
+                        processing = true;
+                        cropError = null;
+                      });
+                      controller.crop();
+                    }
+                  : null,
+              icon: const Icon(Icons.check),
+              label: Text(processing ? 'جاري القص…' : 'تأكيد القص'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _deletePhoto(Map<String, dynamic> p) async {
@@ -761,7 +876,13 @@ class _BranchEditorState extends State<BranchEditor> {
                 Row(children: [
                   const Text('صور الفرع', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
                   const Spacer(),
-                  TextButton.icon(onPressed: _addPhoto, icon: const Icon(Icons.add_photo_alternate_outlined), label: const Text('إضافة صورة')),
+                  TextButton.icon(
+                    onPressed: _photosBusy ? null : _addPhoto,
+                    icon: _photosBusy
+                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.add_photo_alternate_outlined),
+                    label: Text(_photosBusy ? 'جاري تجهيز الصور…' : 'إضافة صور'),
+                  ),
                 ]),
                 const Text('صوّر المكان والأجهزة والأجواء — من غير وشوش زباين.', style: TextStyle(color: Colors.white54)),
                 const SizedBox(height: 8),

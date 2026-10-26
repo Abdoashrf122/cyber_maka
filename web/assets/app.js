@@ -50,10 +50,7 @@ function renderBranches() {
     return;
   }
   $('branch-list').replaceChildren(...cat.branches.map((b) => {
-    const gallery = b.photos.length
-      ? el('div', { class: 'gallery' }, b.photos.map((p) =>
-          el('img', { src: `/photos/${p.path}`, alt: p.caption || b.name, loading: 'lazy' })))
-      : el('div', { class: 'gallery empty', 'aria-hidden': 'true' }, '🎮');
+    const gallery = branchGallery(b);
     const wa = waLink(b.whatsapp);
     return el('article', { class: 'branch' },
       gallery,
@@ -71,6 +68,73 @@ function renderBranches() {
           wa && el('a', { class: 'btn small ghost', href: wa, target: '_blank', rel: 'noopener' }, 'واتساب'),
           b.phone && el('a', { class: 'btn small ghost', href: `tel:${b.phone}` }, '📞 اتصل'))));
   }));
+}
+
+function branchGallery(branch) {
+  if (!branch.photos.length) return el('div', { class: 'gallery empty', 'aria-hidden': 'true' }, '🎮');
+
+  const slides = branch.photos.map((photo, index) => {
+    const src = `/photos/${photo.path}`;
+    return el('div', { class: `gallery-slide${index === 0 ? ' is-active' : ''}` },
+      el('img', { class: 'gallery-backdrop', src, alt: '', 'aria-hidden': 'true', loading: 'lazy' }),
+      el('img', {
+        class: 'gallery-photo',
+        src,
+        alt: photo.caption || `صورة ${index + 1} من ${branch.name}`,
+        loading: index === 0 ? 'eager' : 'lazy',
+      }),
+      photo.caption && el('span', { class: 'gallery-caption' }, photo.caption));
+  });
+  const track = el('div', { class: 'gallery-track', role: 'group', tabindex: '0', 'aria-label': `صور ${branch.name}` }, slides);
+  if (slides.length === 1) return el('div', { class: 'gallery' }, track);
+
+  const counter = el('span', { class: 'gallery-count', 'aria-live': 'polite' }, `01 / ${String(slides.length).padStart(2, '0')}`);
+  const thumbnails = branch.photos.map((photo, index) =>
+    el('button', {
+      class: `gallery-thumb${index === 0 ? ' is-active' : ''}`,
+      type: 'button',
+      'aria-label': `عرض الصورة ${index + 1}`,
+      'aria-current': index === 0 ? 'true' : null,
+      onclick: () => track.scrollTo({ left: index * track.clientWidth, behavior: 'smooth' }),
+    }, el('img', { src: `/photos/${photo.path}`, alt: '', loading: 'lazy' })));
+  const previous = el('button', {
+    class: 'gallery-arrow',
+    type: 'button',
+    'aria-label': 'الصورة السابقة',
+    onclick: () => track.scrollTo({ left: Math.max(0, (currentIndex - 1) * track.clientWidth), behavior: 'smooth' }),
+  }, '‹');
+  const next = el('button', {
+    class: 'gallery-arrow',
+    type: 'button',
+    'aria-label': 'الصورة التالية',
+    onclick: () => track.scrollTo({ left: Math.min(slides.length - 1, currentIndex + 1) * track.clientWidth, behavior: 'smooth' }),
+  }, '›');
+  let currentIndex = 0;
+  previous.disabled = true;
+  track.addEventListener('scroll', () => {
+    currentIndex = Math.max(0, Math.min(slides.length - 1, Math.round(track.scrollLeft / track.clientWidth)));
+    counter.textContent = `${String(currentIndex + 1).padStart(2, '0')} / ${String(slides.length).padStart(2, '0')}`;
+    previous.disabled = currentIndex === 0;
+    next.disabled = currentIndex === slides.length - 1;
+    slides.forEach((slide, index) => slide.classList.toggle('is-active', index === currentIndex));
+    thumbnails.forEach((thumb, index) => {
+      thumb.classList.toggle('is-active', index === currentIndex);
+      if (index === currentIndex) thumb.setAttribute('aria-current', 'true');
+      else thumb.removeAttribute('aria-current');
+    });
+  }, { passive: true });
+
+  track.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowLeft') previous.click();
+    if (event.key === 'ArrowRight') next.click();
+  });
+
+  return el('div', { class: 'gallery' },
+    track,
+    el('div', { class: 'gallery-tools' },
+      el('div', { class: 'gallery-nav' }, previous, next),
+      counter,
+      el('div', { class: 'gallery-thumbs', 'aria-label': 'اختار صورة' }, thumbnails)));
 }
 
 function choice(pressed, onclick, title, sub) {
