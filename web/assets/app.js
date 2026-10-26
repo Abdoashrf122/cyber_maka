@@ -73,9 +73,13 @@ function renderBranches() {
 function branchGallery(branch) {
   if (!branch.photos.length) return el('div', { class: 'gallery empty', 'aria-hidden': 'true' }, '🎮');
 
+  const gallery = el('div', { class: 'gallery', 'aria-label': `صور ${branch.name}` });
   const slides = branch.photos.map((photo, index) => {
-    const src = `/photos/${photo.path}`;
-    return el('div', { class: `gallery-slide${index === 0 ? ' is-active' : ''}` },
+    const src = `/photos/${photo.path}?v=${encodeURIComponent(photo.version || 0)}`;
+    return el('div', {
+      class: `gallery-slide${index === 0 ? ' is-active' : ''}`,
+      'aria-hidden': String(index !== 0),
+    },
       el('img', { class: 'gallery-backdrop', src, alt: '', 'aria-hidden': 'true', loading: 'lazy' }),
       el('img', {
         class: 'gallery-photo',
@@ -83,58 +87,74 @@ function branchGallery(branch) {
         alt: photo.caption || `صورة ${index + 1} من ${branch.name}`,
         loading: index === 0 ? 'eager' : 'lazy',
       }),
-      photo.caption && el('span', { class: 'gallery-caption' }, photo.caption));
+      el('span', { class: 'gallery-caption' }, photo.caption || branch.name));
   });
-  const track = el('div', { class: 'gallery-track', role: 'group', tabindex: '0', 'aria-label': `صور ${branch.name}` }, slides);
-  if (slides.length === 1) return el('div', { class: 'gallery' }, track);
-
+  const stage = el('div', { class: 'gallery-stage', tabindex: '0', role: 'group', 'aria-label': `صور ${branch.name}` },
+    slides,
+    el('span', { class: 'gallery-sheen', 'aria-hidden': 'true' }));
+  gallery.classList.toggle('single', slides.length === 1);
   const counter = el('span', { class: 'gallery-count', 'aria-live': 'polite' }, `01 / ${String(slides.length).padStart(2, '0')}`);
-  const thumbnails = branch.photos.map((photo, index) =>
+  const dots = branch.photos.map((photo, index) =>
     el('button', {
-      class: `gallery-thumb${index === 0 ? ' is-active' : ''}`,
+      class: `gallery-dot${index === 0 ? ' is-active' : ''}`,
       type: 'button',
       'aria-label': `عرض الصورة ${index + 1}`,
       'aria-current': index === 0 ? 'true' : null,
-      onclick: () => track.scrollTo({ left: index * track.clientWidth, behavior: 'smooth' }),
-    }, el('img', { src: `/photos/${photo.path}`, alt: '', loading: 'lazy' })));
+    }));
   const previous = el('button', {
     class: 'gallery-arrow',
     type: 'button',
     'aria-label': 'الصورة السابقة',
-    onclick: () => track.scrollTo({ left: Math.max(0, (currentIndex - 1) * track.clientWidth), behavior: 'smooth' }),
   }, '‹');
   const next = el('button', {
     class: 'gallery-arrow',
     type: 'button',
     'aria-label': 'الصورة التالية',
-    onclick: () => track.scrollTo({ left: Math.min(slides.length - 1, currentIndex + 1) * track.clientWidth, behavior: 'smooth' }),
   }, '›');
   let currentIndex = 0;
-  previous.disabled = true;
-  track.addEventListener('scroll', () => {
-    currentIndex = Math.max(0, Math.min(slides.length - 1, Math.round(track.scrollLeft / track.clientWidth)));
-    counter.textContent = `${String(currentIndex + 1).padStart(2, '0')} / ${String(slides.length).padStart(2, '0')}`;
-    previous.disabled = currentIndex === 0;
-    next.disabled = currentIndex === slides.length - 1;
-    slides.forEach((slide, index) => slide.classList.toggle('is-active', index === currentIndex));
-    thumbnails.forEach((thumb, index) => {
-      thumb.classList.toggle('is-active', index === currentIndex);
-      if (index === currentIndex) thumb.setAttribute('aria-current', 'true');
-      else thumb.removeAttribute('aria-current');
+  let paused = false;
+  const setSlide = (nextIndex) => {
+    currentIndex = (nextIndex + slides.length) % slides.length;
+    slides.forEach((slide, index) => {
+      const active = index === currentIndex;
+      slide.classList.toggle('is-active', active);
+      slide.setAttribute('aria-hidden', String(!active));
     });
-  }, { passive: true });
-
-  track.addEventListener('keydown', (event) => {
-    if (event.key === 'ArrowLeft') previous.click();
-    if (event.key === 'ArrowRight') next.click();
+    dots.forEach((dot, index) => {
+      const active = index === currentIndex;
+      dot.classList.toggle('is-active', active);
+      if (active) dot.setAttribute('aria-current', 'true');
+      else dot.removeAttribute('aria-current');
+    });
+    counter.textContent = `${String(currentIndex + 1).padStart(2, '0')} / ${String(slides.length).padStart(2, '0')}`;
+  };
+  previous.addEventListener('click', () => setSlide(currentIndex - 1));
+  next.addEventListener('click', () => setSlide(currentIndex + 1));
+  dots.forEach((dot, index) => dot.addEventListener('click', () => setSlide(index)));
+  stage.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowLeft') { event.preventDefault(); setSlide(currentIndex - 1); }
+    if (event.key === 'ArrowRight') { event.preventDefault(); setSlide(currentIndex + 1); }
   });
+  gallery.addEventListener('pointerenter', () => { paused = true; });
+  gallery.addEventListener('pointerleave', () => { paused = false; });
+  gallery.addEventListener('focusin', () => { paused = true; });
+  gallery.addEventListener('focusout', (event) => {
+    if (!gallery.contains(event.relatedTarget)) paused = false;
+  });
+  if (slides.length > 1 && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    window.setInterval(() => {
+      if (!paused && !document.hidden) setSlide(currentIndex + 1);
+    }, 5000);
+  }
 
-  return el('div', { class: 'gallery' },
-    track,
+  gallery.append(
+    stage,
     el('div', { class: 'gallery-tools' },
       el('div', { class: 'gallery-nav' }, previous, next),
       counter,
-      el('div', { class: 'gallery-thumbs', 'aria-label': 'اختار صورة' }, thumbnails)));
+      el('div', { class: 'gallery-dots', 'aria-label': 'اختار صورة' }, dots)),
+  );
+  return gallery;
 }
 
 function choice(pressed, onclick, title, sub) {

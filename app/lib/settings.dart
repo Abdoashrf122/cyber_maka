@@ -778,6 +778,46 @@ class _BranchEditorState extends State<BranchEditor> {
     );
   }
 
+  Future<void> _editPhoto(Map<String, dynamic> photo) async {
+    if (_photosBusy) return;
+    setState(() => _photosBusy = true);
+    try {
+      final path = '${photo['path']}';
+      final original = await sb.storage.from('photos').download(path);
+      if (!mounted) return;
+      final cropped = await _cropPhoto(original, 1, 1);
+      if (cropped == null || !mounted) return;
+      final normalized = await compute(_prepareBranchPhoto, cropped);
+      if (!mounted) return;
+      if (normalized == null) {
+        toast(context, 'صيغة الصورة بعد القص غير مدعومة.', error: true);
+        return;
+      }
+      if (normalized.length > 5 * 1024 * 1024) {
+        toast(context, 'الصورة أكبر من 5 ميجا بعد القص.', error: true);
+        return;
+      }
+
+      final saved = await run(context, () async {
+        await rpcOk('admin_touch_photo', {'p_id': photo['id']});
+        await sb.storage.from('photos').uploadBinary(
+              path,
+              normalized,
+              fileOptions: const FileOptions(
+                contentType: 'image/jpeg',
+                upsert: true,
+                cacheControl: '0',
+              ),
+            );
+      }, ok: 'اتحفظ القص الجديد');
+      if (saved) await _reload();
+    } catch (e) {
+      if (mounted) toast(context, 'مقدرناش نعدّل الصورة: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _photosBusy = false);
+    }
+  }
+
   Future<void> _deletePhoto(Map<String, dynamic> p) async {
     if (!await confirmDialog(context, 'مسح الصورة؟', 'هتختفي من الموقع.', yes: 'امسح', danger: true)) return;
     if (!mounted) return;
@@ -891,18 +931,35 @@ class _BranchEditorState extends State<BranchEditor> {
                     Stack(children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(10),
-                        child: Image.network(photoUrl('${p['path']}'), width: 160, height: 110, fit: BoxFit.cover,
+                        child: Image.network(photoUrl('${p['path']}?v=${p['updated_at'] ?? p['created_at'] ?? ''}'),
+                            width: 160, height: 110, fit: BoxFit.cover,
                             errorBuilder: (_, _, _) => Container(width: 160, height: 110, color: Colors.black26, child: const Icon(Icons.broken_image))),
                       ),
                       PositionedDirectional(
                         top: 4,
                         end: 4,
-                        child: IconButton.filledTonal(
-                          visualDensity: VisualDensity.compact,
-                          onPressed: () => _deletePhoto(p),
-                          icon: const Icon(Icons.delete_outline, size: 18),
-                        ),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          IconButton.filledTonal(
+                            visualDensity: VisualDensity.compact,
+                            tooltip: 'تعديل القص',
+                            onPressed: _photosBusy ? null : () => _editPhoto(p),
+                            icon: const Icon(Icons.crop, size: 18),
+                          ),
+                          IconButton.filledTonal(
+                            visualDensity: VisualDensity.compact,
+                            tooltip: 'مسح الصورة',
+                            onPressed: _photosBusy ? null : () => _deletePhoto(p),
+                            icon: const Icon(Icons.delete_outline, size: 18),
+                          ),
+                        ]),
                       ),
+                      if (_photosBusy)
+                        Positioned.fill(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(10)),
+                            child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                          ),
+                        ),
                     ]),
                 ]),
               ],

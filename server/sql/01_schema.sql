@@ -83,8 +83,11 @@ CREATE TABLE IF NOT EXISTS private.branch_photos (
   path text NOT NULL CHECK (path ~ '^[A-Za-z0-9/_.-]{3,200}$'),
   caption text,
   sort int NOT NULL DEFAULT 0,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE private.branch_photos
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
 
 -- اللي بيتحجز: أجهزة PC (عدد أجهزة) أو غرف بلايستيشن (غرفة كاملة)
 CREATE TABLE IF NOT EXISTS private.offerings (
@@ -484,7 +487,10 @@ BEGIN
         'id', b.id, 'slug', b.slug, 'name', b.name, 'address', b.address, 'maps_url', b.maps_url,
         'phone', b.phone, 'whatsapp', b.whatsapp, 'hours_text', b.hours_text, 'open_24h', b.open_24h,
         'open_time', to_char(b.open_time, 'HH24:MI'), 'close_time', to_char(b.close_time, 'HH24:MI'),
-        'photos', COALESCE((SELECT jsonb_agg(jsonb_build_object('path', p.path, 'caption', p.caption) ORDER BY p.sort, p.created_at)
+        'photos', COALESCE((SELECT jsonb_agg(jsonb_build_object(
+                              'path', p.path, 'caption', p.caption,
+                              'version', floor(extract(epoch FROM p.updated_at) * 1000)::bigint)
+                              ORDER BY p.sort, p.created_at)
                               FROM private.branch_photos p WHERE p.branch_id = b.id), '[]'::jsonb),
         'offerings', COALESCE((SELECT jsonb_agg(jsonb_build_object(
                                   'id', o.id, 'kind', o.kind, 'name', o.name, 'details', o.details, 'units', o.units,
