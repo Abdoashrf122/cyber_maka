@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform;
 
@@ -40,7 +41,10 @@ Future<dynamic> rpc(String fn, [Map<String, dynamic>? params]) async {
 }
 
 /// دوال بترجع {ok:false, error:...} → بترمي ApiError
-Future<Map<String, dynamic>> rpcOk(String fn, [Map<String, dynamic>? params]) async {
+Future<Map<String, dynamic>> rpcOk(
+  String fn, [
+  Map<String, dynamic>? params,
+]) async {
   final m = Map<String, dynamic>.from(await rpc(fn, params) as Map);
   if (m['ok'] == false) throw ApiError('${m['error']}');
   return m;
@@ -57,7 +61,8 @@ String errorText(String code) =>
       'not_found': 'مش موجود (ممكن اتمسح).',
       'already_linked': 'التحويل ده متربط بحجز بالفعل.',
       'bad_name': 'الاسم قصير أوي.',
-      'bad_username': 'اسم المستخدم لازم حروف إنجليزي/أرقام من 3 لـ 30، يبدأ بحرف أو رقم.',
+      'bad_username':
+          'اسم المستخدم لازم حروف إنجليزي/أرقام من 3 لـ 30، يبدأ بحرف أو رقم.',
       'username_taken': 'اسم المستخدم ده معمول بيه حساب بالفعل.',
       'bad_password': 'كلمة السر لازم 8 حروف على الأقل.',
       'cannot_self': 'مش من هنا — ده حسابك إنت.',
@@ -95,12 +100,14 @@ class Booking {
   num? get depositAmount => j['deposit_amount'] as num?;
   String? get payerName => j['payer_name'] as String?;
   String? get paidVia => j['paid_via'] as String?;
-  DateTime? _dt(String k) => j[k] == null ? null : DateTime.tryParse(j[k] as String)?.toLocal();
+  DateTime? _dt(String k) =>
+      j[k] == null ? null : DateTime.tryParse(j[k] as String)?.toLocal();
   DateTime? get approveDeadline => _dt('approve_deadline');
   DateTime? get payDeadline => _dt('pay_deadline');
   DateTime? get createdAt => _dt('created_at');
-  Map<String, dynamic>? get paymentEvent =>
-      j['payment_event'] == null ? null : Map<String, dynamic>.from(j['payment_event'] as Map);
+  Map<String, dynamic>? get paymentEvent => j['payment_event'] == null
+      ? null
+      : Map<String, dynamic>.from(j['payment_event'] as Map);
 
   String get what => kind == 'pc' ? '$offeringName × $units' : offeringName;
 }
@@ -118,13 +125,13 @@ const statusLabels = {
 };
 
 Color statusColor(String s) => switch (s) {
-      'pending' => const Color(0xFFF97316),
-      'awaiting_payment' => const Color(0xFFEAB308),
-      'payment_claimed' => const Color(0xFF38BDF8),
-      'confirmed' => const Color(0xFF22C55E),
-      'completed' => const Color(0xFF14B8A6),
-      _ => const Color(0xFF9CA3AF),
-    };
+  'pending' => const Color(0xFFF97316),
+  'awaiting_payment' => const Color(0xFFEAB308),
+  'payment_claimed' => const Color(0xFF38BDF8),
+  'confirmed' => const Color(0xFF22C55E),
+  'completed' => const Color(0xFF14B8A6),
+  _ => const Color(0xFF9CA3AF),
+};
 
 const paidViaLabels = {
   'manual': 'تأكيد يدوي',
@@ -137,13 +144,21 @@ const paidViaLabels = {
 
 String money(num? n) {
   if (n == null) return '—';
-  final s = n == n.roundToDouble() ? n.toInt().toString() : n.toStringAsFixed(2);
+  final s = n == n.roundToDouble()
+      ? n.toInt().toString()
+      : n.toStringAsFixed(2);
   return '$s ج';
 }
 
 String durationText(int min) {
   final h = min ~/ 60, m = min % 60;
-  final hours = h == 0 ? '' : h == 1 ? 'ساعة' : h == 2 ? 'ساعتين' : '$h ساعات';
+  final hours = h == 0
+      ? ''
+      : h == 1
+      ? 'ساعة'
+      : h == 2
+      ? 'ساعتين'
+      : '$h ساعات';
   if (m == 0) return hours;
   final rest = m == 30 ? 'نص' : '$m دقيقة';
   return hours.isEmpty ? '$m دقيقة' : '$hours و$rest';
@@ -165,7 +180,15 @@ String dayText(String isoDate) {
   if (diff == 0) return 'النهارده';
   if (diff == 1) return 'بكرة';
   if (diff == -1) return 'امبارح';
-  const names = ['الاتنين', 'التلات', 'الأربع', 'الخميس', 'الجمعة', 'السبت', 'الأحد'];
+  const names = [
+    'الاتنين',
+    'التلات',
+    'الأربع',
+    'الخميس',
+    'الجمعة',
+    'السبت',
+    'الأحد',
+  ];
   return '${names[d.weekday - 1]} ${d.day}/${d.month}';
 }
 
@@ -192,21 +215,30 @@ Future<void> openWhatsApp(String phone, [String? text]) {
   var d = phone.replaceAll(RegExp(r'\D'), '');
   if (d.startsWith('0')) d = '2$d';
   final q = text == null ? '' : '?text=${Uri.encodeComponent(text)}';
-  return launchUrl(Uri.parse('https://wa.me/$d$q'), mode: LaunchMode.externalApplication);
+  return launchUrl(
+    Uri.parse('https://wa.me/$d$q'),
+    mode: LaunchMode.externalApplication,
+  );
 }
 
 void toast(BuildContext context, String msg, {bool error = false}) {
   ScaffoldMessenger.of(context)
     ..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(
-      content: Text(msg),
-      backgroundColor: error ? const Color(0xFFB91C1C) : null,
-      behavior: SnackBarBehavior.floating,
-    ));
+    ..showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: error ? const Color(0xFFB91C1C) : null,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
 }
 
 /// زرار بيعمل حاجة على السيرفر: بيعرض الخطأ بالعربي
-Future<bool> run(BuildContext context, Future<void> Function() f, {String? ok}) async {
+Future<bool> run(
+  BuildContext context,
+  Future<void> Function() f, {
+  String? ok,
+}) async {
   try {
     await f();
     if (ok != null && context.mounted) toast(context, ok);
@@ -219,16 +251,27 @@ Future<bool> run(BuildContext context, Future<void> Function() f, {String? ok}) 
   return false;
 }
 
-Future<bool> confirmDialog(BuildContext context, String title, String body, {String yes = 'أيوه', bool danger = false}) async {
+Future<bool> confirmDialog(
+  BuildContext context,
+  String title,
+  String body, {
+  String yes = 'أيوه',
+  bool danger = false,
+}) async {
   final r = await showDialog<bool>(
     context: context,
     builder: (c) => AlertDialog(
       title: Text(title),
       content: Text(body),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('لأ')),
+        TextButton(
+          onPressed: () => Navigator.pop(c, false),
+          child: const Text('لأ'),
+        ),
         FilledButton(
-          style: danger ? FilledButton.styleFrom(backgroundColor: const Color(0xFFB91C1C)) : null,
+          style: danger
+              ? FilledButton.styleFrom(backgroundColor: const Color(0xFFB91C1C))
+              : null,
           onPressed: () => Navigator.pop(c, true),
           child: Text(yes),
         ),
@@ -264,7 +307,9 @@ class Native {
   static Future<List<Map<String, dynamic>>> candidates() async {
     final s = await call<String>('candidates');
     if (s == null) return [];
-    return (jsonDecode(s) as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    return (jsonDecode(s) as List)
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
   }
 
   static Future<Map<String, dynamic>?> parseTest(String text) async {
@@ -278,7 +323,8 @@ Future<void> ensureDeviceRegistered() async {
   if (!isAndroid) return;
   final st = await Native.status();
   // متسجّل على نفس السيرفر؟ (لو التطبيق اتحدّث لسيرفر تاني، توكن الجهاز القديم مالوش لازمة)
-  if (st['configured'] == true && st['apiUrl'] == kApiUrl.replaceAll(RegExp(r'/+$'), '')) {
+  if (st['configured'] == true &&
+      st['apiUrl'] == kApiUrl.replaceAll(RegExp(r'/+$'), '')) {
     await Native.call('ensureRunning');
     return;
   }
@@ -293,14 +339,37 @@ class Ringer {
   static final AudioPlayer _player = AudioPlayer();
   static final AudioPlayer _once = AudioPlayer();
   static bool _on = false;
+  static String? _claimKey;
+  static Timer? _claimTimer;
+  static Timer? _onceTimer;
+
+  static Source _source(String? url) => url == null || url.isEmpty
+      ? AssetSource('sounds/ring.wav')
+      : UrlSource(url);
 
   /// طلب جديد: صوت مرة واحدة + يجيب الشباك قدام
-  static Future<void> notifyOnce() async {
+  static Future<void> notifyOnce({
+    String? source,
+    String mode = 'once',
+    int seconds = 10,
+  }) async {
     if (!isWindows) return;
     try {
-      await _once.setReleaseMode(ReleaseMode.stop);
-      await _once.play(AssetSource('sounds/ring.wav'));
-    } catch (_) {}
+      _onceTimer?.cancel();
+      await _once.stop();
+      await _once.setReleaseMode(
+        mode == 'timed' ? ReleaseMode.loop : ReleaseMode.stop,
+      );
+      await _once.play(_source(source));
+      if (mode == 'timed') {
+        _onceTimer = Timer(
+          Duration(seconds: seconds.clamp(1, 300)),
+          () => _once.stop(),
+        );
+      }
+    } catch (e) {
+      debugPrint('Could not play new-booking sound: $e');
+    }
     try {
       if (await windowManager.isMinimized()) await windowManager.restore();
       await windowManager.show();
@@ -308,15 +377,33 @@ class Ringer {
     } catch (_) {}
   }
 
-  /// العميل حوّل الـ deposit: رنة طويلة لحد stop()
+  /// العميل حوّل الـ deposit: صوت مرة أو لمدة محددة، مع بقاء نافذة التأكيد.
 
-  static Future<void> start() async {
-    if (!isWindows || _on) return;
+  static Future<void> start({
+    required String key,
+    String? source,
+    String mode = 'timed',
+    int seconds = 30,
+  }) async {
+    if (!isWindows || _claimKey == key) return;
+    _claimTimer?.cancel();
+    await _player.stop();
+    _claimKey = key;
     _on = true;
     try {
-      await _player.setReleaseMode(ReleaseMode.loop);
-      await _player.play(AssetSource('sounds/ring.wav'));
-    } catch (_) {}
+      await _player.setReleaseMode(
+        mode == 'timed' ? ReleaseMode.loop : ReleaseMode.stop,
+      );
+      await _player.play(_source(source));
+      if (mode == 'timed') {
+        _claimTimer = Timer(Duration(seconds: seconds.clamp(1, 300)), () async {
+          await _player.stop();
+          _on = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Could not play deposit-claim sound: $e');
+    }
     try {
       if (await windowManager.isMinimized()) await windowManager.restore();
       await windowManager.show();
@@ -328,10 +415,18 @@ class Ringer {
   }
 
   static Future<void> stop() async {
+    _claimTimer?.cancel();
+    _claimKey = null;
     if (!_on) return;
     _on = false;
     try {
       await _player.stop();
     } catch (_) {}
+  }
+
+  static Future<void> stopAll() async {
+    _onceTimer?.cancel();
+    await _once.stop();
+    await stop();
   }
 }

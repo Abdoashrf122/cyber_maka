@@ -40,7 +40,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _poll?.cancel();
-    Ringer.stop();
+    Ringer.stopAll();
     super.dispose();
   }
 
@@ -71,13 +71,24 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   List<Map<String, dynamic>> _list(String k) =>
-      ((_pulse[k] as List?) ?? const []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      ((_pulse[k] as List?) ?? const [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+
+  String? _ringSource(String key) {
+    final path = _pulse[key] as String?;
+    return path == null || path.isEmpty
+        ? null
+        : sb.storage.from('ringtones').getPublicUrl(path);
+  }
 
   /// طلب جديد → صوت مرة واحدة + نافذة الطلب.
-  /// العميل قال حوّل الـ deposit → رنة طويلة (ويندوز هنا، أندرويد من الخدمة) + نافذة التأكيد لحد ما حد يرد.
+  /// العميل قال حوّل الـ deposit → رنة موقوتة (ويندوز هنا، أندرويد من الخدمة) + نافذة التأكيد.
   void _handleRing() {
     final pending = _list('pending');
-    final fresh = pending.where((e) => !_seenPending.contains(e['id'])).toList();
+    final fresh = pending
+        .where((e) => !_seenPending.contains(e['id']))
+        .toList();
     _seenPending
       ..retainAll(pending.map((e) => e['id'] as String))
       ..addAll(fresh.map((e) => e['id'] as String));
@@ -88,14 +99,23 @@ class _HomeScreenState extends State<HomeScreen> {
     if (active.isEmpty) {
       Ringer.stop();
     } else {
-      Ringer.start();
+      Ringer.start(
+        key: (active.map((e) => e['id'] as String).toList()..sort()).join(','),
+        source: _ringSource('claim_ring_path'),
+        mode: '${_pulse['claim_ring_mode'] ?? 'timed'}',
+        seconds: (_pulse['claim_ring_seconds'] as num? ?? 30).toInt(),
+      );
     }
 
     if (_dialogFor != null) return;
     if (active.isNotEmpty) {
       _show(active.first['id'] as String, claim: true);
     } else if (fresh.isNotEmpty) {
-      Ringer.notifyOnce();
+      Ringer.notifyOnce(
+        source: _ringSource('new_ring_path'),
+        mode: '${_pulse['new_ring_mode'] ?? 'once'}',
+        seconds: (_pulse['new_ring_seconds'] as num? ?? 10).toInt(),
+      );
       _show(fresh.first['id'] as String, claim: false);
     }
   }
@@ -105,7 +125,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final result = await showDialog<String>(
       context: context,
       barrierDismissible: !claim,
-      builder: (_) => claim ? PaymentClaimDialog(id: id) : NewBookingDialog(id: id),
+      builder: (_) =>
+          claim ? PaymentClaimDialog(id: id) : NewBookingDialog(id: id),
     );
     _dialogFor = null;
     if (result == 'later' && claim) {
@@ -124,8 +145,12 @@ class _HomeScreenState extends State<HomeScreen> {
     final wide = MediaQuery.sizeOf(context).width >= 900;
 
     final pages = <Widget>[
-      BookingsList(scope: 'action', reload: _reload, onChanged: refresh,
-          empty: 'مفيش طلبات محتاجة رد دلوقتي 👌'),
+      BookingsList(
+        scope: 'action',
+        reload: _reload,
+        onChanged: refresh,
+        empty: 'مفيش طلبات محتاجة رد دلوقتي 👌',
+      ),
       SchedulePage(reload: _reload, onChanged: refresh),
       SiteScreen(reload: _reload),
       PaymentsScreen(reload: _reload, onChanged: refresh),
@@ -139,16 +164,21 @@ class _HomeScreenState extends State<HomeScreen> {
       const _Dest(Icons.settings_outlined, 'الإعدادات', 0),
     ];
 
-    final body = Column(children: [
-      if (_offline)
-        Container(
-          width: double.infinity,
-          color: const Color(0xFF7F1D1D),
-          padding: const EdgeInsets.all(8),
-          child: const Text('مفيش اتصال بالسيرفر — بنحاول تاني…', textAlign: TextAlign.center),
-        ),
-      Expanded(child: pages[_tab]),
-    ]);
+    final body = Column(
+      children: [
+        if (_offline)
+          Container(
+            width: double.infinity,
+            color: const Color(0xFF7F1D1D),
+            padding: const EdgeInsets.all(8),
+            child: const Text(
+              'مفيش اتصال بالسيرفر — بنحاول تاني…',
+              textAlign: TextAlign.center,
+            ),
+          ),
+        Expanded(child: pages[_tab]),
+      ],
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -163,35 +193,51 @@ class _HomeScreenState extends State<HomeScreen> {
                 backgroundColor: const Color(0xFF9A3412),
               ),
             ),
-          IconButton(tooltip: 'تحديث', onPressed: refresh, icon: const Icon(Icons.refresh)),
+          IconButton(
+            tooltip: 'تحديث',
+            onPressed: refresh,
+            icon: const Icon(Icons.refresh),
+          ),
         ],
       ),
       body: wide
-          ? Row(children: [
-              NavigationRail(
-                selectedIndex: _tab,
-                labelType: NavigationRailLabelType.all,
-                onDestinationSelected: (i) => setState(() => _tab = i),
-                destinations: [
-                  for (final d in dests)
-                    NavigationRailDestination(icon: _badge(d), label: Text(d.label)),
-                ],
-              ),
-              const VerticalDivider(width: 1),
-              Expanded(child: body),
-            ])
+          ? Row(
+              children: [
+                NavigationRail(
+                  selectedIndex: _tab,
+                  labelType: NavigationRailLabelType.all,
+                  onDestinationSelected: (i) => setState(() => _tab = i),
+                  destinations: [
+                    for (final d in dests)
+                      NavigationRailDestination(
+                        icon: _badge(d),
+                        label: Text(d.label),
+                      ),
+                  ],
+                ),
+                const VerticalDivider(width: 1),
+                Expanded(child: body),
+              ],
+            )
           : body,
       bottomNavigationBar: wide
           ? null
           : NavigationBar(
               selectedIndex: _tab,
               onDestinationSelected: (i) => setState(() => _tab = i),
-              destinations: [for (final d in dests) NavigationDestination(icon: _badge(d), label: d.label)],
+              destinations: [
+                for (final d in dests)
+                  NavigationDestination(icon: _badge(d), label: d.label),
+              ],
             ),
     );
   }
 
-  Widget _badge(_Dest d) => Badge(isLabelVisible: d.count > 0, label: Text('${d.count}'), child: Icon(d.icon));
+  Widget _badge(_Dest d) => Badge(
+    isLabelVisible: d.count > 0,
+    label: Text('${d.count}'),
+    child: Icon(d.icon),
+  );
 }
 
 class _Dest {
@@ -246,15 +292,29 @@ class _NewBookingDialogState extends State<NewBookingDialog> {
   Widget build(BuildContext context) {
     final b = _b;
     return AlertDialog(
-      icon: const Icon(Icons.notifications_active, size: 40, color: Color(0xFFF97316)),
+      icon: const Icon(
+        Icons.notifications_active,
+        size: 40,
+        color: Color(0xFFF97316),
+      ),
       title: const Text('طلب حجز جديد'),
       content: b == null
-          ? const SizedBox(height: 80, child: Center(child: CircularProgressIndicator()))
+          ? const SizedBox(
+              height: 80,
+              child: Center(child: CircularProgressIndicator()),
+            )
           : (b.status != 'pending'
-              ? Text('الطلب ده اتعامل معاه بالفعل (${statusLabels[b.status]}).')
-              : SingleChildScrollView(child: BookingSummary(b: b))),
+                ? Text(
+                    'الطلب ده اتعامل معاه بالفعل (${statusLabels[b.status]}).',
+                  )
+                : SingleChildScrollView(child: BookingSummary(b: b))),
       actions: b == null || b.status != 'pending'
-          ? [TextButton(onPressed: () => Navigator.pop(context, 'done'), child: const Text('تمام'))]
+          ? [
+              TextButton(
+                onPressed: () => Navigator.pop(context, 'done'),
+                child: const Text('تمام'),
+              ),
+            ]
           : [
               TextButton.icon(
                 onPressed: _busy
@@ -263,18 +323,30 @@ class _NewBookingDialogState extends State<NewBookingDialog> {
                         _busy = true;
                         final ok = await blockBooking(context, b);
                         _busy = false;
-                        if (ok && context.mounted) Navigator.pop(context, 'done');
+                        if (ok && context.mounted)
+                          Navigator.pop(context, 'done');
                       },
-                icon: const Icon(Icons.block, size: 18, color: Color(0xFFF87171)),
-                label: const Text('بلوك', style: TextStyle(color: Color(0xFFF87171))),
+                icon: const Icon(
+                  Icons.block,
+                  size: 18,
+                  color: Color(0xFFF87171),
+                ),
+                label: const Text(
+                  'بلوك',
+                  style: TextStyle(color: Color(0xFFF87171)),
+                ),
               ),
-              TextButton(onPressed: _busy ? null : () => Navigator.pop(context, 'later'), child: const Text('بعدين')),
+              TextButton(
+                onPressed: _busy ? null : () => Navigator.pop(context, 'later'),
+                child: const Text('بعدين'),
+              ),
               OutlinedButton(
                 onPressed: _busy
                     ? null
                     : () async {
                         final ok = await rejectBooking(context, b);
-                        if (ok && context.mounted) Navigator.pop(context, 'done');
+                        if (ok && context.mounted)
+                          Navigator.pop(context, 'done');
                       },
                 child: const Text('رفض'),
               ),
@@ -344,29 +416,68 @@ class _PaymentClaimDialogState extends State<PaymentClaimDialog> {
       icon: const Icon(Icons.payments, size: 40, color: Color(0xFF22C55E)),
       title: const Text('العميل حوّل الـ deposit'),
       content: b == null
-          ? const SizedBox(height: 80, child: Center(child: CircularProgressIndicator()))
+          ? const SizedBox(
+              height: 80,
+              child: Center(child: CircularProgressIndicator()),
+            )
           : SingleChildScrollView(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('افتح InstaPay/Telda واتأكد إن ${money(b.depositAmount)} وصلت'
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'افتح InstaPay/Telda واتأكد إن ${money(b.depositAmount)} وصلت'
                     '${b.payerName != null ? ' من «${b.payerName}»' : ''}.',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF86EFAC))),
-                const SizedBox(height: 10),
-                Text('#${b.code}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1)),
-                BookingSummary(b: b),
-              ]),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF86EFAC),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    '#${b.code}',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                  BookingSummary(b: b),
+                ],
+              ),
             ),
       actions: b == null
-          ? [TextButton(onPressed: () => Navigator.pop(context, 'later'), child: const Text('بعدين (إسكات)'))]
+          ? [
+              TextButton(
+                onPressed: () => Navigator.pop(context, 'later'),
+                child: const Text('بعدين (إسكات)'),
+              ),
+            ]
           : [
-              TextButton(onPressed: _busy ? null : () => Navigator.pop(context, 'later'), child: const Text('بعدين (إسكات)')),
+              TextButton(
+                onPressed: _busy ? null : () => Navigator.pop(context, 'later'),
+                child: const Text('بعدين (إسكات)'),
+              ),
               OutlinedButton(
                 onPressed: _busy
                     ? null
                     : () async {
-                        final reason = await askReason(context, 'الـ deposit ماوصلش؟', const ['الـ deposit ماوصلش', 'المبلغ غلط — كلّمنا']);
+                        final reason = await askReason(
+                          context,
+                          'الـ deposit ماوصلش؟',
+                          const ['الـ deposit ماوصلش', 'المبلغ غلط — كلّمنا'],
+                        );
                         if (reason == null || !context.mounted) return;
                         setState(() => _busy = true);
-                        final ok = await run(context, () => rpcOk('admin_set_status', {'p_id': b.id, 'p_status': 'rejected', 'p_reason': reason}), ok: 'اتلغى');
+                        final ok = await run(
+                          context,
+                          () => rpcOk('admin_set_status', {
+                            'p_id': b.id,
+                            'p_status': 'rejected',
+                            'p_reason': reason,
+                          }),
+                          ok: 'اتلغى',
+                        );
                         if (!context.mounted) return;
                         setState(() => _busy = false);
                         if (ok) Navigator.pop(context, 'done');
@@ -374,12 +485,18 @@ class _PaymentClaimDialogState extends State<PaymentClaimDialog> {
                 child: const Text('ماوصلش'),
               ),
               FilledButton.icon(
-                style: FilledButton.styleFrom(backgroundColor: const Color(0xFF15803D)),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF15803D),
+                ),
                 onPressed: _busy
                     ? null
                     : () async {
                         setState(() => _busy = true);
-                        final ok = await run(context, () => rpcOk('admin_confirm_payment', {'p_id': b.id}), ok: 'الحجز اتأكد ✓');
+                        final ok = await run(
+                          context,
+                          () => rpcOk('admin_confirm_payment', {'p_id': b.id}),
+                          ok: 'الحجز اتأكد ✓',
+                        );
                         if (!context.mounted) return;
                         setState(() => _busy = false);
                         if (ok) Navigator.pop(context, 'done');
@@ -394,10 +511,16 @@ class _PaymentClaimDialogState extends State<PaymentClaimDialog> {
 
 // ═════════ الإجراءات ═════════
 
-Future<bool> acceptBooking(BuildContext context, Booking b) => run(context, () async {
-      final r = await rpcOk('admin_decide', {'p_id': b.id, 'p_accept': true});
-      if (r['status'] == 'confirmed') return;
-    }, ok: b.depositBase > 0 ? 'اتقبل — العميل بيحوّل الـ deposit دلوقتي' : 'اتقبل واتأكد');
+Future<bool> acceptBooking(BuildContext context, Booking b) => run(
+  context,
+  () async {
+    final r = await rpcOk('admin_decide', {'p_id': b.id, 'p_accept': true});
+    if (r['status'] == 'confirmed') return;
+  },
+  ok: b.depositBase > 0
+      ? 'اتقبل — العميل بيحوّل الـ deposit دلوقتي'
+      : 'اتقبل واتأكد',
+);
 
 Future<bool> rejectBooking(BuildContext context, Booking b) async {
   final reason = await askReason(context, 'سبب الرفض (بيظهر للعميل)', const [
@@ -407,26 +530,60 @@ Future<bool> rejectBooking(BuildContext context, Booking b) async {
     'الرقم مش واضح — كلّمنا',
   ]);
   if (reason == null || !context.mounted) return false;
-  return run(context, () => rpcOk('admin_decide', {'p_id': b.id, 'p_accept': false, 'p_reason': reason}), ok: 'اترفض');
+  return run(
+    context,
+    () => rpcOk('admin_decide', {
+      'p_id': b.id,
+      'p_accept': false,
+      'p_reason': reason,
+    }),
+    ok: 'اترفض',
+  );
 }
 
-Future<String?> askReason(BuildContext context, String title, List<String> quick) {
+Future<String?> askReason(
+  BuildContext context,
+  String title,
+  List<String> quick,
+) {
   final c = TextEditingController();
   return showDialog<String>(
     context: context,
     builder: (ctx) => AlertDialog(
       title: Text(title),
-      content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Wrap(spacing: 6, runSpacing: 6, children: [
-          for (final q in quick) ActionChip(label: Text(q), onPressed: () => Navigator.pop(ctx, q)),
-        ]),
-        const SizedBox(height: 12),
-        TextField(controller: c, maxLength: 200, decoration: const InputDecoration(labelText: 'أو اكتب السبب')),
-      ]),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final q in quick)
+                ActionChip(
+                  label: Text(q),
+                  onPressed: () => Navigator.pop(ctx, q),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: c,
+            maxLength: 200,
+            decoration: const InputDecoration(labelText: 'أو اكتب السبب'),
+          ),
+        ],
+      ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('رجوع')),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('رجوع'),
+        ),
         FilledButton(
-          onPressed: () => Navigator.pop(ctx, c.text.trim().isEmpty ? quick.first : c.text.trim()),
+          onPressed: () => Navigator.pop(
+            ctx,
+            c.text.trim().isEmpty ? quick.first : c.text.trim(),
+          ),
           child: const Text('تمام'),
         ),
       ],
@@ -439,7 +596,11 @@ Future<String?> askReason(BuildContext context, String title, List<String> quick
 class SchedulePage extends StatefulWidget {
   final int reload;
   final VoidCallback onChanged;
-  const SchedulePage({super.key, required this.reload, required this.onChanged});
+  const SchedulePage({
+    super.key,
+    required this.reload,
+    required this.onChanged,
+  });
   @override
   State<SchedulePage> createState() => _SchedulePageState();
 }
@@ -448,33 +609,47 @@ class _SchedulePageState extends State<SchedulePage> {
   String _scope = 'today';
 
   @override
-  Widget build(BuildContext context) => Column(children: [
-        Padding(
-          padding: const EdgeInsets.all(12),
-          child: SegmentedButton<String>(
-            segments: const [
-              ButtonSegment(value: 'today', label: Text('النهارده'), icon: Icon(Icons.today)),
-              ButtonSegment(value: 'upcoming', label: Text('الجاية'), icon: Icon(Icons.upcoming)),
-              ButtonSegment(value: 'history', label: Text('السجل'), icon: Icon(Icons.history)),
-            ],
-            selected: {_scope},
-            onSelectionChanged: (s) => setState(() => _scope = s.first),
-          ),
+  Widget build(BuildContext context) => Column(
+    children: [
+      Padding(
+        padding: const EdgeInsets.all(12),
+        child: SegmentedButton<String>(
+          segments: const [
+            ButtonSegment(
+              value: 'today',
+              label: Text('النهارده'),
+              icon: Icon(Icons.today),
+            ),
+            ButtonSegment(
+              value: 'upcoming',
+              label: Text('الجاية'),
+              icon: Icon(Icons.upcoming),
+            ),
+            ButtonSegment(
+              value: 'history',
+              label: Text('السجل'),
+              icon: Icon(Icons.history),
+            ),
+          ],
+          selected: {_scope},
+          onSelectionChanged: (s) => setState(() => _scope = s.first),
         ),
-        Expanded(
-          child: BookingsList(
-            key: ValueKey(_scope),
-            scope: _scope,
-            reload: widget.reload,
-            onChanged: widget.onChanged,
-            empty: switch (_scope) {
-              'today' => 'مفيش حجوزات النهارده',
-              'upcoming' => 'مفيش حجوزات متأكدة جاية',
-              _ => 'مفيش حجوزات لسه',
-            },
-          ),
+      ),
+      Expanded(
+        child: BookingsList(
+          key: ValueKey(_scope),
+          scope: _scope,
+          reload: widget.reload,
+          onChanged: widget.onChanged,
+          empty: switch (_scope) {
+            'today' => 'مفيش حجوزات النهارده',
+            'upcoming' => 'مفيش حجوزات متأكدة جاية',
+            _ => 'مفيش حجوزات لسه',
+          },
         ),
-      ]);
+      ),
+    ],
+  );
 }
 
 class BookingsList extends StatefulWidget {
@@ -482,7 +657,13 @@ class BookingsList extends StatefulWidget {
   final int reload;
   final VoidCallback onChanged;
   final String empty;
-  const BookingsList({super.key, required this.scope, required this.reload, required this.onChanged, required this.empty});
+  const BookingsList({
+    super.key,
+    required this.scope,
+    required this.reload,
+    required this.onChanged,
+    required this.empty,
+  });
   @override
   State<BookingsList> createState() => _BookingsListState();
 }
@@ -516,10 +697,15 @@ class _BookingsListState extends State<BookingsList> {
 
   Future<void> _load() async {
     try {
-      final r = await rpc('admin_bookings', {'p_scope': widget.scope, 'p_limit': widget.scope == 'history' ? 300 : 200});
+      final r = await rpc('admin_bookings', {
+        'p_scope': widget.scope,
+        'p_limit': widget.scope == 'history' ? 300 : 200,
+      });
       if (!mounted) return;
       setState(() {
-        _items = (r as List).map((e) => Booking(Map<String, dynamic>.from(e as Map))).toList();
+        _items = (r as List)
+            .map((e) => Booking(Map<String, dynamic>.from(e as Map)))
+            .toList();
         _error = null;
       });
     } on ApiError catch (e) {
@@ -530,15 +716,26 @@ class _BookingsListState extends State<BookingsList> {
   @override
   Widget build(BuildContext context) {
     if (_items == null) {
-      return Center(child: _error == null ? const CircularProgressIndicator() : Text(_error!));
+      return Center(
+        child: _error == null
+            ? const CircularProgressIndicator()
+            : Text(_error!),
+      );
     }
     if (_items!.isEmpty) {
       return RefreshIndicator(
         onRefresh: _load,
-        child: ListView(children: [
-          const SizedBox(height: 120),
-          Center(child: Text(widget.empty, style: const TextStyle(fontSize: 17, color: Colors.white70))),
-        ]),
+        child: ListView(
+          children: [
+            const SizedBox(height: 120),
+            Center(
+              child: Text(
+                widget.empty,
+                style: const TextStyle(fontSize: 17, color: Colors.white70),
+              ),
+            ),
+          ],
+        ),
       );
     }
     return RefreshIndicator(
@@ -565,24 +762,48 @@ class BookingSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget line(IconData i, String t, {Color? color, bool bold = false}) => Padding(
+    Widget line(IconData i, String t, {Color? color, bool bold = false}) =>
+        Padding(
           padding: const EdgeInsets.symmetric(vertical: 2),
-          child: Row(children: [
-            Icon(i, size: 18, color: color ?? Colors.white60),
-            const SizedBox(width: 8),
-            Expanded(child: Text(t, style: TextStyle(color: color, fontWeight: bold ? FontWeight.bold : null))),
-          ]),
+          child: Row(
+            children: [
+              Icon(i, size: 18, color: color ?? Colors.white60),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  t,
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: bold ? FontWeight.bold : null,
+                  ),
+                ),
+              ),
+            ],
+          ),
         );
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      line(Icons.store, b.branchName),
-      line(b.kind == 'pc' ? Icons.computer : Icons.sports_esports, b.what, bold: true),
-      line(Icons.schedule, '${dayText(b.date)} — ${time12(b.time)} لـ ${time12(b.endTime)} (${durationText(b.durationMin)})', bold: true),
-      line(Icons.person, b.customerName ?? '—'),
-      if (b.phone != null) line(Icons.phone, b.phone!),
-      if (b.note != null) line(Icons.notes, b.note!),
-      line(Icons.payments_outlined,
-          'الحساب ${money(b.priceTotal)} · الـ deposit ${money(b.depositAmount ?? b.depositBase)}'),
-    ]);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        line(Icons.store, b.branchName),
+        line(
+          b.kind == 'pc' ? Icons.computer : Icons.sports_esports,
+          b.what,
+          bold: true,
+        ),
+        line(
+          Icons.schedule,
+          '${dayText(b.date)} — ${time12(b.time)} لـ ${time12(b.endTime)} (${durationText(b.durationMin)})',
+          bold: true,
+        ),
+        line(Icons.person, b.customerName ?? '—'),
+        if (b.phone != null) line(Icons.phone, b.phone!),
+        if (b.note != null) line(Icons.notes, b.note!),
+        line(
+          Icons.payments_outlined,
+          'الحساب ${money(b.priceTotal)} · الـ deposit ${money(b.depositAmount ?? b.depositBase)}',
+        ),
+      ],
+    );
   }
 }
 
@@ -600,44 +821,98 @@ class BookingCard extends StatelessWidget {
     final color = statusColor(b.status);
     final ev = b.paymentEvent;
     String? timer;
-    if (b.status == 'pending') timer = 'باقي للرد: ${minutesLeft(b.approveDeadline)}';
-    if (b.status == 'awaiting_payment') timer = 'مهلة الدفع: ${minutesLeft(b.payDeadline)}';
+    if (b.status == 'pending')
+      timer = 'باقي للرد: ${minutesLeft(b.approveDeadline)}';
+    if (b.status == 'awaiting_payment')
+      timer = 'مهلة الدفع: ${minutesLeft(b.payDeadline)}';
 
     return Card(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: color.withValues(alpha: b.status == 'pending' ? .9 : .35), width: b.status == 'pending' ? 2 : 1),
+        side: BorderSide(
+          color: color.withValues(alpha: b.status == 'pending' ? .9 : .35),
+          width: b.status == 'pending' ? 2 : 1,
+        ),
       ),
       child: Padding(
         padding: const EdgeInsets.all(14),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Text('#${b.code}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1)),
-            const SizedBox(width: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-              decoration: BoxDecoration(color: color.withValues(alpha: .18), borderRadius: BorderRadius.circular(20)),
-              child: Text(statusLabels[b.status] ?? b.status, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  '#${b.code}',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: .18),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    statusLabels[b.status] ?? b.status,
+                    style: TextStyle(color: color, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  agoText(b.createdAt),
+                  style: const TextStyle(color: Colors.white54, fontSize: 13),
+                ),
+              ],
             ),
-            const Spacer(),
-            Text(agoText(b.createdAt), style: const TextStyle(color: Colors.white54, fontSize: 13)),
-          ]),
-          const SizedBox(height: 8),
-          BookingSummary(b: b),
-          if (timer != null) ...[
-            const SizedBox(height: 6),
-            Text(timer, style: const TextStyle(color: Color(0xFFFBBF24), fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            BookingSummary(b: b),
+            if (timer != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                timer,
+                style: const TextStyle(
+                  color: Color(0xFFFBBF24),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+            if (b.payerName != null)
+              Text(
+                'اسم المحوِّل حسب العميل: ${b.payerName}',
+                style: const TextStyle(color: Color(0xFF7DD3FC)),
+              ),
+            if (b.paidVia != null)
+              Text(
+                'اتأكد: ${paidViaLabels[b.paidVia] ?? b.paidVia}',
+                style: const TextStyle(color: Color(0xFF86EFAC)),
+              ),
+            if (ev != null)
+              Text(
+                'التحويل: ${money(ev['amount'] as num?)} من ${ev['payer'] ?? ev['origin']}',
+                style: const TextStyle(color: Colors.white60, fontSize: 13),
+              ),
+            if (b.reason != null &&
+                ![
+                  'pending',
+                  'awaiting_payment',
+                  'payment_claimed',
+                  'confirmed',
+                ].contains(b.status))
+              Text(
+                'السبب: ${b.reason}',
+                style: const TextStyle(color: Colors.white60),
+              ),
+            const SizedBox(height: 10),
+            Wrap(spacing: 8, runSpacing: 8, children: _actions(context)),
           ],
-          if (b.payerName != null) Text('اسم المحوِّل حسب العميل: ${b.payerName}', style: const TextStyle(color: Color(0xFF7DD3FC))),
-          if (b.paidVia != null) Text('اتأكد: ${paidViaLabels[b.paidVia] ?? b.paidVia}', style: const TextStyle(color: Color(0xFF86EFAC))),
-          if (ev != null)
-            Text('التحويل: ${money(ev['amount'] as num?)} من ${ev['payer'] ?? ev['origin']}',
-                style: const TextStyle(color: Colors.white60, fontSize: 13)),
-          if (b.reason != null && !['pending', 'awaiting_payment', 'payment_claimed', 'confirmed'].contains(b.status))
-            Text('السبب: ${b.reason}', style: const TextStyle(color: Colors.white60)),
-          const SizedBox(height: 10),
-          Wrap(spacing: 8, runSpacing: 8, children: _actions(context)),
-        ]),
+        ),
       ),
     );
   }
@@ -646,88 +921,221 @@ class BookingCard extends StatelessWidget {
     final list = <Widget>[];
     switch (b.status) {
       case 'pending':
-        list.add(FilledButton.icon(onPressed: () => _act(context, () => acceptBooking(context, b)), icon: const Icon(Icons.check), label: const Text('قبول')));
-        list.add(OutlinedButton(onPressed: () => _act(context, () => rejectBooking(context, b)), child: const Text('رفض')));
+        list.add(
+          FilledButton.icon(
+            onPressed: () => _act(context, () => acceptBooking(context, b)),
+            icon: const Icon(Icons.check),
+            label: const Text('قبول'),
+          ),
+        );
+        list.add(
+          OutlinedButton(
+            onPressed: () => _act(context, () => rejectBooking(context, b)),
+            child: const Text('رفض'),
+          ),
+        );
       case 'awaiting_payment':
       case 'payment_claimed':
-        list.add(FilledButton.icon(
-          style: FilledButton.styleFrom(backgroundColor: const Color(0xFF15803D)),
-          onPressed: () => _act(context, () async {
-            if (!await confirmDialog(context, 'الفلوس وصلت؟',
-                'اتأكد بنفسك إن ${money(b.depositAmount)} وصلت في InstaPay/Telda قبل ما تأكد.', yes: 'أيوه وصلت')) {
-              return false;
-            }
-            if (!context.mounted) return false;
-            return run(context, () => rpcOk('admin_confirm_payment', {'p_id': b.id}), ok: 'الحجز اتأكد');
-          }),
-          icon: const Icon(Icons.verified),
-          label: const Text('الفلوس وصلت — أكّد'),
-        ));
+        list.add(
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF15803D),
+            ),
+            onPressed: () => _act(context, () async {
+              if (!await confirmDialog(
+                context,
+                'الفلوس وصلت؟',
+                'اتأكد بنفسك إن ${money(b.depositAmount)} وصلت في InstaPay/Telda قبل ما تأكد.',
+                yes: 'أيوه وصلت',
+              )) {
+                return false;
+              }
+              if (!context.mounted) return false;
+              return run(
+                context,
+                () => rpcOk('admin_confirm_payment', {'p_id': b.id}),
+                ok: 'الحجز اتأكد',
+              );
+            }),
+            icon: const Icon(Icons.verified),
+            label: const Text('الفلوس وصلت — أكّد'),
+          ),
+        );
         if (b.status == 'awaiting_payment') {
-          list.add(OutlinedButton(
-            onPressed: () => _act(context, () => run(context, () => rpcOk('admin_extend_payment', {'p_id': b.id, 'p_minutes': 10}), ok: 'اتزودت 10 دقايق')),
-            child: const Text('+10 دقايق'),
-          ));
+          list.add(
+            OutlinedButton(
+              onPressed: () => _act(
+                context,
+                () => run(
+                  context,
+                  () => rpcOk('admin_extend_payment', {
+                    'p_id': b.id,
+                    'p_minutes': 10,
+                  }),
+                  ok: 'اتزودت 10 دقايق',
+                ),
+              ),
+              child: const Text('+10 دقايق'),
+            ),
+          );
         }
-        list.add(OutlinedButton(
-          onPressed: () => _act(context, () async {
-            final reason = await askReason(context, 'الـ deposit ماوصلش؟', const ['الـ deposit ماوصلش', 'المبلغ غلط — كلّمنا']);
-            if (reason == null || !context.mounted) return false;
-            return run(context, () => rpcOk('admin_set_status', {'p_id': b.id, 'p_status': 'rejected', 'p_reason': reason}), ok: 'اتلغى');
-          }),
-          child: const Text('ماوصلش'),
-        ));
+        list.add(
+          OutlinedButton(
+            onPressed: () => _act(context, () async {
+              final reason = await askReason(
+                context,
+                'الـ deposit ماوصلش؟',
+                const ['الـ deposit ماوصلش', 'المبلغ غلط — كلّمنا'],
+              );
+              if (reason == null || !context.mounted) return false;
+              return run(
+                context,
+                () => rpcOk('admin_set_status', {
+                  'p_id': b.id,
+                  'p_status': 'rejected',
+                  'p_reason': reason,
+                }),
+                ok: 'اتلغى',
+              );
+            }),
+            child: const Text('ماوصلش'),
+          ),
+        );
       case 'expired':
         if (b.depositAmount != null) {
-          list.add(OutlinedButton(
-            onPressed: () => _act(context, () => run(context, () => rpcOk('admin_extend_payment', {'p_id': b.id, 'p_minutes': 15}), ok: 'رجع يستنى الـ deposit 15 دقيقة')),
-            child: const Text('رجّعه يستنى الدفع'),
-          ));
-          list.add(OutlinedButton(
-            onPressed: () => _act(context, () async {
-              if (!await confirmDialog(context, 'الفلوس وصلت؟', 'هيتأكد الحجز لو المكان لسه فاضي.', yes: 'أكّد')) return false;
-              if (!context.mounted) return false;
-              return run(context, () => rpcOk('admin_confirm_payment', {'p_id': b.id}), ok: 'الحجز اتأكد');
-            }),
-            child: const Text('الفلوس وصلت متأخر'),
-          ));
+          list.add(
+            OutlinedButton(
+              onPressed: () => _act(
+                context,
+                () => run(
+                  context,
+                  () => rpcOk('admin_extend_payment', {
+                    'p_id': b.id,
+                    'p_minutes': 15,
+                  }),
+                  ok: 'رجع يستنى الـ deposit 15 دقيقة',
+                ),
+              ),
+              child: const Text('رجّعه يستنى الدفع'),
+            ),
+          );
+          list.add(
+            OutlinedButton(
+              onPressed: () => _act(context, () async {
+                if (!await confirmDialog(
+                  context,
+                  'الفلوس وصلت؟',
+                  'هيتأكد الحجز لو المكان لسه فاضي.',
+                  yes: 'أكّد',
+                ))
+                  return false;
+                if (!context.mounted) return false;
+                return run(
+                  context,
+                  () => rpcOk('admin_confirm_payment', {'p_id': b.id}),
+                  ok: 'الحجز اتأكد',
+                );
+              }),
+              child: const Text('الفلوس وصلت متأخر'),
+            ),
+          );
         }
       case 'confirmed':
-        list.add(FilledButton.tonal(
-          onPressed: () => _act(context, () => run(context, () => rpcOk('admin_set_status', {'p_id': b.id, 'p_status': 'completed'}), ok: 'تمام')),
-          child: const Text('حضر وخلص'),
-        ));
-        list.add(OutlinedButton(
-          onPressed: () => _act(context, () async {
-            if (!await confirmDialog(context, 'ماجاش؟', 'هيتسجل غياب والمكان يفضى.', yes: 'ماجاش')) return false;
-            if (!context.mounted) return false;
-            return run(context, () => rpcOk('admin_set_status', {'p_id': b.id, 'p_status': 'no_show'}));
-          }),
-          child: const Text('ماجاش'),
-        ));
+        list.add(
+          FilledButton.tonal(
+            onPressed: () => _act(
+              context,
+              () => run(
+                context,
+                () => rpcOk('admin_set_status', {
+                  'p_id': b.id,
+                  'p_status': 'completed',
+                }),
+                ok: 'تمام',
+              ),
+            ),
+            child: const Text('حضر وخلص'),
+          ),
+        );
+        list.add(
+          OutlinedButton(
+            onPressed: () => _act(context, () async {
+              if (!await confirmDialog(
+                context,
+                'ماجاش؟',
+                'هيتسجل غياب والمكان يفضى.',
+                yes: 'ماجاش',
+              ))
+                return false;
+              if (!context.mounted) return false;
+              return run(
+                context,
+                () => rpcOk('admin_set_status', {
+                  'p_id': b.id,
+                  'p_status': 'no_show',
+                }),
+              );
+            }),
+            child: const Text('ماجاش'),
+          ),
+        );
     }
-    if (['pending', 'awaiting_payment', 'payment_claimed', 'confirmed'].contains(b.status)) {
-      list.add(TextButton(
-        onPressed: () => _act(context, () async {
-          final reason = await askReason(context, 'إلغاء الحجز', const ['المحل لغى الحجز', 'العميل طلب الإلغاء']);
-          if (reason == null || !context.mounted) return false;
-          return run(context, () => rpcOk('admin_set_status', {'p_id': b.id, 'p_status': 'cancelled', 'p_reason': reason}), ok: 'اتلغى');
-        }),
-        child: const Text('إلغاء', style: TextStyle(color: Color(0xFFFCA5A5))),
-      ));
+    if ([
+      'pending',
+      'awaiting_payment',
+      'payment_claimed',
+      'confirmed',
+    ].contains(b.status)) {
+      list.add(
+        TextButton(
+          onPressed: () => _act(context, () async {
+            final reason = await askReason(context, 'إلغاء الحجز', const [
+              'المحل لغى الحجز',
+              'العميل طلب الإلغاء',
+            ]);
+            if (reason == null || !context.mounted) return false;
+            return run(
+              context,
+              () => rpcOk('admin_set_status', {
+                'p_id': b.id,
+                'p_status': 'cancelled',
+                'p_reason': reason,
+              }),
+              ok: 'اتلغى',
+            );
+          }),
+          child: const Text(
+            'إلغاء',
+            style: TextStyle(color: Color(0xFFFCA5A5)),
+          ),
+        ),
+      );
     }
     if (b.phone != null) {
-      list.add(IconButton(
-        tooltip: 'بلوك (إزعاج)',
-        onPressed: () => _act(context, () => blockBooking(context, b)),
-        icon: const Icon(Icons.block, color: Color(0xFFF87171)),
-      ));
-      list.add(IconButton(tooltip: 'اتصال', onPressed: () => callPhone(b.phone!), icon: const Icon(Icons.call)));
-      list.add(IconButton(
-        tooltip: 'واتساب',
-        onPressed: () => openWhatsApp(b.phone!, 'أهلاً ${b.customerName ?? ''}، بخصوص حجزك #${b.code} في سيبر مكة'),
-        icon: const Icon(Icons.chat),
-      ));
+      list.add(
+        IconButton(
+          tooltip: 'بلوك (إزعاج)',
+          onPressed: () => _act(context, () => blockBooking(context, b)),
+          icon: const Icon(Icons.block, color: Color(0xFFF87171)),
+        ),
+      );
+      list.add(
+        IconButton(
+          tooltip: 'اتصال',
+          onPressed: () => callPhone(b.phone!),
+          icon: const Icon(Icons.call),
+        ),
+      );
+      list.add(
+        IconButton(
+          tooltip: 'واتساب',
+          onPressed: () => openWhatsApp(
+            b.phone!,
+            'أهلاً ${b.customerName ?? ''}، بخصوص حجزك #${b.code} في سيبر مكة',
+          ),
+          icon: const Icon(Icons.chat),
+        ),
+      );
     }
     return list;
   }

@@ -14,8 +14,8 @@ import org.json.JSONObject
 
 /**
  * شغالة طول الوقت على موبايل المحل: كل 8 ثواني بتسأل السيرفر (device_pulse)
- * • فيه طلب جديد → إشعار عادي (صوت مرة واحدة)
- * • العميل قال حوّل الـ deposit → رنة طويلة لحد ما حد يأكد/يرفض (من أي جهاز) أو يدوس «إسكات»
+ * • فيه طلب جديد → إشعار وصوت حسب إعدادات الأدمن
+ * • العميل قال حوّل الـ deposit → صوت بمدة محددة، والإشعار يفضل لحد ما الطلب يتعالج
  * • بتبعت التحويلات المتخزنة لو النت كان واقع
  */
 class MakaService : Service() {
@@ -85,13 +85,21 @@ class MakaService : Service() {
                 prefs.snoozed = prefs.snoozed + prefs.ringingIds
                 prefs.ringingIds = emptySet()
                 testRingUntil = 0
+                AlertAudio.stop("claim")
                 Notifier.stopRing(this)
             }
             ACTION_TEST_RING -> worker.post {
                 testRingUntil = System.currentTimeMillis() + 15000
                 Notifier.ring(this, listOf("تجربة"))
+                val prefs = MakaPrefs(this)
+                AlertAudio.play(this, "test", "test-${System.currentTimeMillis()}", prefs.claimRingPath, "timed", 15)
                 worker.postDelayed({
-                    if (System.currentTimeMillis() >= testRingUntil && MakaPrefs(this).ringingIds.isEmpty()) Notifier.stopRing(this)
+                    if (System.currentTimeMillis() >= testRingUntil) {
+                        AlertAudio.stop("test")
+                    }
+                    if (System.currentTimeMillis() >= testRingUntil && MakaPrefs(this).ringingIds.isEmpty()) {
+                        Notifier.stopRing(this)
+                    }
                 }, 15500)
             }
             else -> worker.post { Sync.flush(this) }
@@ -118,26 +126,59 @@ class MakaService : Service() {
         prefs.senders = toSet(res.optJSONArray("sms_senders")) ?: prefs.senders
         prefs.autoNotif = res.optBoolean("auto_notifications", true)
         prefs.autoSms = res.optBoolean("auto_sms", true)
+        prefs.newRingPath = res.optString("new_ring_path").takeIf { it.isNotBlank() }
+        prefs.newRingMode = res.optString("new_ring_mode", "once")
+        prefs.newRingSeconds = res.optInt("new_ring_seconds", 10).coerceIn(1, 300)
+        prefs.claimRingPath = res.optString("claim_ring_path").takeIf { it.isNotBlank() }
+        prefs.claimRingMode = res.optString("claim_ring_mode", "timed")
+        prefs.claimRingSeconds = res.optInt("claim_ring_seconds", 30).coerceIn(1, 300)
 
-        // ── طلبات جديدة → إشعار عادي (صوت مرة واحدة لكل طلب جديد)
+        // ── طلبات جديدة → إشعار وصوت حسب إعدادات الأدمن
         val pending = items(res.optJSONArray("pending"))
         val pendingIds = pending.map { it.first }.toSet()
         val fresh = pending.filter { it.first !in prefs.seenPending }
-        if (fresh.isNotEmpty()) Notifier.newRequest(this, pending.map { it.second })
-        if (pendingIds.isEmpty()) Notifier.clearNewRequest(this)
+        if (fresh.isNotEmpty()) {
+            Notifier.newRequest(this, pending.map { it.second })
+            AlertAudio.play(
+                this,
+                "new",
+                "new:${fresh.map { it.first }.sorted().joinToString(",")}",
+                prefs.newRingPath,
+                prefs.newRingMode,
+                prefs.newRingSeconds,
+            )
+        }
+        if (pendingIds.isEmpty()) {
+            AlertAudio.stop("new")
+            Notifier.clearNewRequest(this)
+        }
         prefs.seenPending = pendingIds
 
-        // ── العميل قال حوّل الـ deposit → رنة طويلة لحد ما الأدمن يأكد/يرفض (من أي جهاز) أو يسكّت
+        // ── العميل قال حوّل الـ deposit → صوت محدود المدة مع إبقاء الإشعار
         val claimed = items(res.optJSONArray("claimed"))
         val claimedIds = claimed.map { it.first }.toSet()
         prefs.snoozed = prefs.snoozed.intersect(claimedIds)
         val active = claimed.filter { it.first !in prefs.snoozed }
         val activeIds = active.map { it.first }.toSet()
         if (activeIds.isEmpty()) {
-            if (prefs.ringingIds.isNotEmpty()) Notifier.stopRing(this)
+            if (prefs.ringingIds.isNotEmpty()) {
+                AlertAudio.stop("claim")
+                Notifier.stopRing(this)
+            }
             prefs.ringingIds = emptySet()
         } else if (activeIds != prefs.ringingIds) {
             Notifier.ring(this, active.map { it.second })
+            val newlyActive = activeIds - prefs.ringingIds
+            if (newlyActive.isNotEmpty()) {
+                AlertAudio.play(
+                    this,
+                    "claim",
+                    "claim:${newlyActive.sorted().joinToString(",")}",
+                    prefs.claimRingPath,
+                    prefs.claimRingMode,
+                    prefs.claimRingSeconds,
+                )
+            }
             prefs.ringingIds = activeIds
         }
     }
@@ -156,6 +197,7 @@ class MakaService : Service() {
         isRunning = false
         worker.removeCallbacksAndMessages(null)
         thread.quitSafely()
+        AlertAudio.stop()
         Notifier.stopRing(this)
         wakeLock?.let { if (it.isHeld) it.release() }
         super.onDestroy()

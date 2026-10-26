@@ -5,9 +5,9 @@ import com.onesignal.notifications.INotificationServiceExtension
 
 /**
  * إشعار OneSignal جاي من السيرفر (sql/07_push.sql) — بيشتغل حتى والتطبيق مقفول خالص:
- * • kind=new   → إشعار «طلب حجز جديد» العادي بتاعنا (صوت مرة واحدة)
- * • kind=claim → الرنة الطويلة (FLAG_INSISTENT) لحد ما حد يأكد/يرفض أو يسكّت
- * • kind=clear → الطلب اتعامل معاه من أي جهاز → نشيل الإشعار/نوقّف الرنة (مابيظهرش حاجة)
+ * • kind=new   → إشعار طلب جديد وصوته حسب إعدادات الأدمن
+ * • kind=claim → إشعار تحويل وصوت محدود المدة حسب الإعدادات
+ * • kind=clear → الطلب اتعامل معاه من أي جهاز → نشيل الإشعار/نوقّف الصوت المناسب
  * بنستخدم نفس أرقام الإشعارات بتاعة خدمة الخلفية، فلو الاتنين وصلوا مفيش تكرار.
  * أي حاجة غريبة → OneSignal يعرض الإشعار عادي (أحسن من إنه مايوصلش).
  */
@@ -27,6 +27,14 @@ class MakaPushExtension : INotificationServiceExtension {
                         return
                     }
                     Notifier.newRequest(ctx, listOf(code))
+                    AlertAudio.play(
+                        ctx,
+                        "new",
+                        "new:$id",
+                        prefs.newRingPath,
+                        prefs.newRingMode,
+                        prefs.newRingSeconds,
+                    )
                     if (id.isNotEmpty()) prefs.seenPending = prefs.seenPending + id
                 }
                 "claim" -> {
@@ -35,13 +43,25 @@ class MakaPushExtension : INotificationServiceExtension {
                         return
                     }
                     Notifier.ring(ctx, listOf(code))
+                    AlertAudio.play(
+                        ctx,
+                        "claim",
+                        "claim:$id",
+                        prefs.claimRingPath,
+                        prefs.claimRingMode,
+                        prefs.claimRingSeconds,
+                    )
                     if (id.isNotEmpty()) prefs.ringingIds = prefs.ringingIds + id
                 }
                 "clear" -> {
                     prefs.seenPending = prefs.seenPending - id
+                    AlertAudio.stop("new")
                     val left = prefs.ringingIds - id
                     prefs.ringingIds = left
-                    if (left.isEmpty()) Notifier.stopRing(ctx)
+                    if (left.isEmpty()) {
+                        AlertAudio.stop("claim")
+                        Notifier.stopRing(ctx)
+                    }
                     Notifier.clearNewRequest(ctx)
                 }
                 else -> return

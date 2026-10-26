@@ -6,14 +6,12 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.media.AudioAttributes
-import android.net.Uri
 
-/** الإشعارات: خدمة شغالة (هادي) + رنة طلب جديد (بتفضل ترن لحد ما حد يرد) + معلومات */
+/** الإشعارات صامتة؛ صوتها بيتحكم فيه AlertAudio عشان المدة والإعدادات تبقى مشتركة. */
 object Notifier {
     const val CH_SERVICE = "maka_service"
-    const val CH_RING = "maka_ring_v1"
-    const val CH_NEW = "maka_new_v1"
+    const val CH_RING = "maka_ring_v2"
+    const val CH_NEW = "maka_new_v2"
     const val CH_INFO = "maka_info"
     const val ID_SERVICE = 1
     const val ID_RING = 2
@@ -30,27 +28,15 @@ object Notifier {
         )
         nm.createNotificationChannel(
             NotificationChannel(CH_NEW, "طلبات حجز جديدة", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "إشعار عادي (صوت مرة واحدة) لما يوصل طلب حجز"
-                setSound(
-                    Uri.parse("android.resource://${ctx.packageName}/raw/maka_ring"),
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_NOTIFICATION)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build()
-                )
+                description = "إشعار طلب حجز جديد"
+                setSound(null, null)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
         )
         nm.createNotificationChannel(
             NotificationChannel(CH_RING, "العميل حوّل الـ deposit", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "رنة طويلة لحد ما تأكد إن الفلوس وصلت (أو تقول ماوصلتش)"
-                setSound(
-                    Uri.parse("android.resource://${ctx.packageName}/raw/maka_ring"),
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build()
-                )
+                description = "إشعار العميل قال إنه حوّل الـ deposit"
+                setSound(null, null)
                 enableVibration(true)
                 vibrationPattern = longArrayOf(0, 600, 400, 600)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
@@ -78,7 +64,7 @@ object Notifier {
             .setContentIntent(openApp(ctx))
             .build()
 
-    /** طلب جديد: إشعار عادي بصوت مرة واحدة */
+    /** طلب جديد: الإشعار يظل ظاهرًا حتى بعد انتهاء الصوت. */
     fun newRequest(ctx: Context, codes: List<String>) {
         val n = Notification.Builder(ctx, CH_NEW)
             .setSmallIcon(R.mipmap.ic_launcher)
@@ -95,7 +81,7 @@ object Notifier {
         ctx.getSystemService(NotificationManager::class.java).cancel(ID_NEW)
     }
 
-    /** العميل قال حوّل: رنة طويلة (FLAG_INSISTENT) لحد ما الأدمن يأكد/يرفض أو يسكّت */
+    /** العميل قال حوّل: الإشعار يظل ظاهرًا، والصوت له مؤقت مستقل. */
     fun ring(ctx: Context, codes: List<String>) {
         val snooze = PendingIntent.getService(
             ctx, 1, Intent(ctx, MakaService::class.java).setAction(MakaService.ACTION_SNOOZE),
@@ -110,7 +96,6 @@ object Notifier {
             .setAutoCancel(false)
             .addAction(Notification.Action.Builder(null, "إسكات", snooze).build())
             .build()
-        n.flags = n.flags or Notification.FLAG_INSISTENT
         ctx.getSystemService(NotificationManager::class.java).notify(ID_RING, n)
     }
 

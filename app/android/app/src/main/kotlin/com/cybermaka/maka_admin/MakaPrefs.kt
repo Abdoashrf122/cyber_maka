@@ -42,6 +42,24 @@ class MakaPrefs(ctx: Context) {
     var autoSms: Boolean
         get() = p.getBoolean("auto_sms", true)
         set(v) = p.edit().putBoolean("auto_sms", v).apply()
+    var newRingPath: String?
+        get() = p.getString("new_ring_path", null)
+        set(v) = p.edit().putString("new_ring_path", v).apply()
+    var newRingMode: String
+        get() = p.getString("new_ring_mode", "once") ?: "once"
+        set(v) = p.edit().putString("new_ring_mode", v).apply()
+    var newRingSeconds: Int
+        get() = p.getInt("new_ring_seconds", 10)
+        set(v) = p.edit().putInt("new_ring_seconds", v).apply()
+    var claimRingPath: String?
+        get() = p.getString("claim_ring_path", null)
+        set(v) = p.edit().putString("claim_ring_path", v).apply()
+    var claimRingMode: String
+        get() = p.getString("claim_ring_mode", "timed") ?: "timed"
+        set(v) = p.edit().putString("claim_ring_mode", v).apply()
+    var claimRingSeconds: Int
+        get() = p.getInt("claim_ring_seconds", 30)
+        set(v) = p.edit().putInt("claim_ring_seconds", v).apply()
 
     // حجوزات «العميل حوّل» اللي الأدمن داس عليها «إسكات» — الرنة مابترجعش لها (بترن تاني لو عميل جديد حوّل)
     var snoozed: Set<String>

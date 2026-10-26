@@ -42,6 +42,12 @@ CREATE TABLE IF NOT EXISTS private.settings (
   pay_note text,
   auto_confirm_notifications boolean NOT NULL DEFAULT true,
   auto_confirm_sms boolean NOT NULL DEFAULT true,
+  new_ring_path text,
+  new_ring_mode text NOT NULL DEFAULT 'once',
+  new_ring_seconds int NOT NULL DEFAULT 10,
+  claim_ring_path text,
+  claim_ring_mode text NOT NULL DEFAULT 'timed',
+  claim_ring_seconds int NOT NULL DEFAULT 30,
   -- إشعارات التحويل بتتقري من التطبيقات دي بس (اسم الباكدج — مايتزوّرش)
   notif_packages text[] NOT NULL DEFAULT ARRAY['com.egyptianbanks.instapay', 'com.telda.app'],
   -- رسايل SMS بتتقري من الأسماء دي بس (اسم شركة — أي رقم موبايل بيتجاهل)
@@ -52,6 +58,12 @@ CREATE TABLE IF NOT EXISTS private.settings (
 INSERT INTO private.settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 -- إخفاء الأسعار من الموقع خالص (الكتالوج مابيرجعهاش أصلًا)
 ALTER TABLE private.settings ADD COLUMN IF NOT EXISTS show_prices boolean NOT NULL DEFAULT true;
+ALTER TABLE private.settings ADD COLUMN IF NOT EXISTS new_ring_path text;
+ALTER TABLE private.settings ADD COLUMN IF NOT EXISTS new_ring_mode text NOT NULL DEFAULT 'once';
+ALTER TABLE private.settings ADD COLUMN IF NOT EXISTS new_ring_seconds int NOT NULL DEFAULT 10;
+ALTER TABLE private.settings ADD COLUMN IF NOT EXISTS claim_ring_path text;
+ALTER TABLE private.settings ADD COLUMN IF NOT EXISTS claim_ring_mode text NOT NULL DEFAULT 'timed';
+ALTER TABLE private.settings ADD COLUMN IF NOT EXISTS claim_ring_seconds int NOT NULL DEFAULT 30;
 
 CREATE TABLE IF NOT EXISTS private.admins (
   user_id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -762,7 +774,9 @@ BEGIN
     'claimed', COALESCE((SELECT jsonb_agg(jsonb_build_object('id', id, 'code', code) ORDER BY claimed_at)
                            FROM private.bookings WHERE status = 'payment_claimed'), '[]'::jsonb),
     'notif_packages', to_jsonb(s.notif_packages), 'sms_senders', to_jsonb(s.sms_senders),
-    'auto_notifications', s.auto_confirm_notifications, 'auto_sms', s.auto_confirm_sms);
+    'auto_notifications', s.auto_confirm_notifications, 'auto_sms', s.auto_confirm_sms,
+    'new_ring_path', s.new_ring_path, 'new_ring_mode', s.new_ring_mode, 'new_ring_seconds', s.new_ring_seconds,
+    'claim_ring_path', s.claim_ring_path, 'claim_ring_mode', s.claim_ring_mode, 'claim_ring_seconds', s.claim_ring_seconds);
 END $$;
 
 CREATE OR REPLACE FUNCTION public.device_ingest_payment(p_token text, p_source text, p_origin text, p_title text, p_body text,
@@ -801,7 +815,13 @@ BEGIN
     'awaiting_count', (SELECT count(*) FROM private.bookings WHERE status = 'awaiting_payment'),
     'unmatched_events', (SELECT count(*) FROM private.payment_events
                           WHERE result IN ('unmatched', 'ambiguous') AND created_at > now() - interval '1 day'),
-    'last_change', (SELECT max(updated_at) FROM private.bookings));
+    'last_change', (SELECT max(updated_at) FROM private.bookings),
+    'new_ring_path', (SELECT new_ring_path FROM private.settings WHERE id = 1),
+    'new_ring_mode', (SELECT new_ring_mode FROM private.settings WHERE id = 1),
+    'new_ring_seconds', (SELECT new_ring_seconds FROM private.settings WHERE id = 1),
+    'claim_ring_path', (SELECT claim_ring_path FROM private.settings WHERE id = 1),
+    'claim_ring_mode', (SELECT claim_ring_mode FROM private.settings WHERE id = 1),
+    'claim_ring_seconds', (SELECT claim_ring_seconds FROM private.settings WHERE id = 1));
 END $$;
 
 CREATE OR REPLACE FUNCTION public.admin_bookings(p_scope text, p_branch uuid DEFAULT NULL, p_limit int DEFAULT 200) RETURNS jsonb
@@ -1023,6 +1043,22 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = private, pg_temp AS $$
 BEGIN
   PERFORM private._require_admin();
   IF p IS NULL OR jsonb_typeof(p) <> 'object' THEN RETURN jsonb_build_object('ok', false, 'error', 'bad_input'); END IF;
+  IF (p ? 'new_ring_mode' AND p ->> 'new_ring_mode' NOT IN ('once', 'timed'))
+     OR (p ? 'claim_ring_mode' AND p ->> 'claim_ring_mode' NOT IN ('once', 'timed')) THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'bad_ring_mode');
+  END IF;
+  IF (p ? 'new_ring_seconds' AND (p ->> 'new_ring_seconds') !~ '^[0-9]{1,3}$')
+     OR (p ? 'claim_ring_seconds' AND (p ->> 'claim_ring_seconds') !~ '^[0-9]{1,3}$') THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'bad_ring_duration');
+  END IF;
+  IF (p ? 'new_ring_seconds' AND (p ->> 'new_ring_seconds')::int NOT BETWEEN 1 AND 300)
+     OR (p ? 'claim_ring_seconds' AND (p ->> 'claim_ring_seconds')::int NOT BETWEEN 1 AND 300) THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'bad_ring_duration');
+  END IF;
+  IF (p ? 'new_ring_path' AND p ->> 'new_ring_path' IS NOT NULL AND p ->> 'new_ring_path' !~ '^admin/[A-Za-z0-9_-]{1,100}\.(mp3|wav|ogg|m4a|aac)$')
+     OR (p ? 'claim_ring_path' AND p ->> 'claim_ring_path' IS NOT NULL AND p ->> 'claim_ring_path' !~ '^admin/[A-Za-z0-9_-]{1,100}\.(mp3|wav|ogg|m4a|aac)$') THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'bad_ring_path');
+  END IF;
   UPDATE private.settings SET
     booking_enabled = COALESCE((p ->> 'booking_enabled')::boolean, booking_enabled),
     closed_message = COALESCE(private._clean_text(p ->> 'closed_message', 300), closed_message),
@@ -1042,6 +1078,12 @@ BEGIN
     pay_note = CASE WHEN p ? 'pay_note' THEN private._clean_text(p ->> 'pay_note', 300) ELSE pay_note END,
     auto_confirm_notifications = COALESCE((p ->> 'auto_confirm_notifications')::boolean, auto_confirm_notifications),
     auto_confirm_sms = COALESCE((p ->> 'auto_confirm_sms')::boolean, auto_confirm_sms),
+    new_ring_path = CASE WHEN p ? 'new_ring_path' THEN p ->> 'new_ring_path' ELSE new_ring_path END,
+    new_ring_mode = COALESCE(p ->> 'new_ring_mode', new_ring_mode),
+    new_ring_seconds = COALESCE((p ->> 'new_ring_seconds')::int, new_ring_seconds),
+    claim_ring_path = CASE WHEN p ? 'claim_ring_path' THEN p ->> 'claim_ring_path' ELSE claim_ring_path END,
+    claim_ring_mode = COALESCE(p ->> 'claim_ring_mode', claim_ring_mode),
+    claim_ring_seconds = COALESCE((p ->> 'claim_ring_seconds')::int, claim_ring_seconds),
     notif_packages = CASE WHEN jsonb_typeof(p -> 'notif_packages') = 'array' THEN
       ARRAY(SELECT DISTINCT btrim(x) FROM jsonb_array_elements_text(p -> 'notif_packages') x
              WHERE btrim(x) ~ '^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$' AND length(btrim(x)) <= 100)
@@ -1203,6 +1245,24 @@ CREATE POLICY maka_photos_admin_update ON storage.objects FOR UPDATE TO authenti
   USING (bucket_id = 'photos' AND public.is_admin()) WITH CHECK (bucket_id = 'photos' AND public.is_admin());
 CREATE POLICY maka_photos_admin_delete ON storage.objects FOR DELETE TO authenticated
   USING (bucket_id = 'photos' AND public.is_admin());
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES ('ringtones', 'ringtones', true, 5242880, ARRAY['audio/mpeg', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/mp4', 'audio/aac'])
+ON CONFLICT (id) DO UPDATE SET public = true, file_size_limit = 5242880,
+  allowed_mime_types = ARRAY['audio/mpeg', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/mp4', 'audio/aac'];
+
+DROP POLICY IF EXISTS maka_ringtones_admin_select ON storage.objects;
+DROP POLICY IF EXISTS maka_ringtones_admin_insert ON storage.objects;
+DROP POLICY IF EXISTS maka_ringtones_admin_update ON storage.objects;
+DROP POLICY IF EXISTS maka_ringtones_admin_delete ON storage.objects;
+CREATE POLICY maka_ringtones_admin_select ON storage.objects FOR SELECT TO authenticated
+  USING (bucket_id = 'ringtones' AND public.is_admin());
+CREATE POLICY maka_ringtones_admin_insert ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'ringtones' AND public.is_admin());
+CREATE POLICY maka_ringtones_admin_update ON storage.objects FOR UPDATE TO authenticated
+  USING (bucket_id = 'ringtones' AND public.is_admin()) WITH CHECK (bucket_id = 'ringtones' AND public.is_admin());
+CREATE POLICY maka_ringtones_admin_delete ON storage.objects FOR DELETE TO authenticated
+  USING (bucket_id = 'ringtones' AND public.is_admin());
 
 -- ═════════ الصلاحيات ═════════
 -- Supabase بيدي EXECUTE لأي دالة جديدة لـ anon/authenticated تلقائيًا → نقفل الكل ونفتح المطلوب بس
