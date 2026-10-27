@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -242,8 +244,12 @@ class _NewAdminDialogState extends State<_NewAdminDialog> {
       setState(() => _err = 'اكتب اسم الأدمن (حرفين على الأقل).');
       return;
     }
-    if (pass.length < 8) {
-      setState(() => _err = 'كلمة السر 8 حروف على الأقل.');
+    if (pass.isEmpty) {
+      setState(() => _err = 'اكتب كلمة السر.');
+      return;
+    }
+    if (utf8.encode(pass).length > 72) {
+      setState(() => _err = 'كلمة السر بحد أقصى 72 بايت.');
       return;
     }
     if (pass != _pass2.text) {
@@ -270,7 +276,7 @@ class _NewAdminDialogState extends State<_NewAdminDialog> {
           'username_taken' => 'اسم المستخدم ده معمول بيه حساب بالفعل.',
           'bad_username' => 'اسم المستخدم: حروف إنجليزي/أرقام من 3 لـ 30، يبدأ بحرف أو رقم.',
           'bad_name' => 'اكتب اسم الأدمن (حرفين على الأقل).',
-          'bad_password' => 'كلمة السر 8 حروف على الأقل.',
+          'bad_password' => 'كلمة السر مطلوبة وبحد أقصى 72 بايت.',
           _ => e.toString(),
         };
       });
@@ -312,7 +318,7 @@ class _NewAdminDialogState extends State<_NewAdminDialog> {
               decoration: const InputDecoration(labelText: 'الموبايل (اختياري)'),
             ),
             const SizedBox(height: 8),
-            _passField(_pass, 'كلمة سر مؤقتة (8+)'),
+            _passField(_pass, 'كلمة سر مؤقتة'),
             _passField(_pass2, 'اكتبها تاني'),
             if (_err != null)
               Padding(
@@ -362,8 +368,12 @@ class _ResetPasswordDialogState extends State<_ResetPasswordDialog> {
       );
 
   Future<void> _save() async {
-    if (_pass.text.length < 8) {
-      setState(() => _err = 'كلمة السر 8 حروف على الأقل.');
+    if (_pass.text.isEmpty) {
+      setState(() => _err = 'اكتب كلمة السر.');
+      return;
+    }
+    if (utf8.encode(_pass.text).length > 72) {
+      setState(() => _err = 'كلمة السر بحد أقصى 72 بايت.');
       return;
     }
     if (_pass.text != _pass2.text) {
@@ -383,7 +393,7 @@ class _ResetPasswordDialogState extends State<_ResetPasswordDialog> {
         _err = switch (e.code) {
           'cannot_self' => 'دي كلمة سرك إنت — استخدم «تغيير كلمة السر» من شاشة الحساب.',
           'not_found' => 'الحساب مش موجود (ممكن اتمسح).',
-          'bad_password' => 'كلمة السر 8 حروف على الأقل.',
+          'bad_password' => 'كلمة السر مطلوبة وبحد أقصى 72 بايت.',
           _ => e.toString(),
         };
       });
@@ -407,7 +417,7 @@ class _ResetPasswordDialogState extends State<_ResetPasswordDialog> {
             style: TextStyle(color: Colors.white60),
           ),
           const SizedBox(height: 8),
-          _passField(_pass, 'كلمة السر المؤقتة (8+)'),
+          _passField(_pass, 'كلمة السر المؤقتة'),
           _passField(_pass2, 'اكتبها تاني'),
           if (_err != null)
             Padding(

@@ -1,8 +1,10 @@
 package com.cybermaka.maka_admin
 
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Handler
@@ -41,6 +43,11 @@ class MakaService : Service() {
     private lateinit var worker: Handler
     private var wakeLock: PowerManager.WakeLock? = null
     private var testRingUntil = 0L
+    private val screenOffReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == Intent.ACTION_SCREEN_OFF) AlertAudio.stop()
+        }
+    }
 
     private val tick = object : Runnable {
         override fun run() {
@@ -55,6 +62,13 @@ class MakaService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        val screenOffFilter = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(screenOffReceiver, screenOffFilter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(screenOffReceiver, screenOffFilter)
+        }
         Notifier.channels(this)
         val n = Notifier.service(
             this,
@@ -210,6 +224,7 @@ class MakaService : Service() {
     }
 
     override fun onDestroy() {
+        unregisterReceiver(screenOffReceiver)
         isRunning = false
         worker.removeCallbacksAndMessages(null)
         thread.quitSafely()

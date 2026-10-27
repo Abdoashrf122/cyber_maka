@@ -12,12 +12,11 @@ BEGIN;
 -- مين اللي عمل الحساب (للعرض في شاشة «الفريق» بس)
 ALTER TABLE private.admins ADD COLUMN IF NOT EXISTS created_by uuid REFERENCES auth.users(id) ON DELETE SET NULL;
 
--- كلمة السر: 8 حروف على الأقل، وبحد bcrypt (72 بايت)، ومن غير الكلمات السهلة دي
+-- كلمة السر مطلوبة، وحد bcrypt الأقصى 72 بايت.
 CREATE OR REPLACE FUNCTION private._password_error(p text) RETURNS text
 LANGUAGE plpgsql IMMUTABLE SET search_path = pg_catalog AS $$
 BEGIN
-  IF p IS NULL OR length(p) < 8 OR octet_length(p) > 72 THEN RETURN 'bad_password'; END IF;
-  IF lower(p) IN ('admin', '12345678', '123456789', 'password', 'qwerty123') THEN RETURN 'bad_password'; END IF;
+  IF p IS NULL OR p = '' OR octet_length(p) > 72 THEN RETURN 'bad_password'; END IF;
   RETURN NULL;
 END $$;
 

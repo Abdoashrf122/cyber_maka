@@ -62,8 +62,8 @@ services:
       GOTRUE_URI_ALLOW_LIST: ""
       # حسابات الأدمن بتتعمل من السيرفر بس (scripts/create_admin.sh) — مفيش تسجيل من برا
       GOTRUE_DISABLE_SIGNUP: "true"
-      # كلمة السر الأولى ممكن تكون "admin" — التطبيق بيجبره يغيّرها (8+ حروف) أول ما يدخل
-      GOTRUE_PASSWORD_MIN_LENGTH: "5"
+      # الحد الأدنى كلمة واحدة (غير فارغة)؛ حد bcrypt الأقصى 72 بايت.
+      GOTRUE_PASSWORD_MIN_LENGTH: "1"
       GOTRUE_JWT_ADMIN_ROLES: service_role
       GOTRUE_JWT_AUD: authenticated
       GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated

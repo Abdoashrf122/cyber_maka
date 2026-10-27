@@ -26,10 +26,12 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _offline = false;
   bool _pushEnabled = false;
   bool _pushLoading = true;
+  bool _pushPreferenceLoaded = false;
   bool _pushBusy = false;
   String? _pushError;
   final Set<String> _snoozed = {};
   final Set<String> _seenPending = {};
+  final Set<String> _seenClaimed = {};
   String? _dialogFor;
 
   @override
@@ -56,6 +58,9 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadPushPreference() async {
     try {
       if (isAndroid) await initPush();
+      if (isWindows && !await initDesktopNotifications()) {
+        throw StateError('تعذر تهيئة إشعارات سطح المكتب.');
+      }
       final enabled = await rpc('admin_push_enabled');
       if (enabled is! bool) throw StateError('تعذر قراءة إعداد استقبال الطلبات.');
       if (isAndroid) {
@@ -68,6 +73,8 @@ class _HomeScreenState extends State<HomeScreen> {
         _pushError = null;
         _pushLoading = false;
       });
+      _pushPreferenceLoaded = true;
+      _handleRing();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -149,6 +156,8 @@ class _HomeScreenState extends State<HomeScreen> {
   /// طلب جديد → صوت مرة واحدة + نافذة الطلب.
   /// العميل قال حوّل الـ deposit → رنة موقوتة (ويندوز هنا، أندرويد من الخدمة) + نافذة التأكيد.
   void _handleRing() {
+    if (!_pushPreferenceLoaded) return;
+
     final pending = _list('pending');
     final fresh = pending
         .where((e) => !_seenPending.contains(e['id']))
@@ -158,9 +167,34 @@ class _HomeScreenState extends State<HomeScreen> {
       ..addAll(fresh.map((e) => e['id'] as String));
 
     final claimed = _list('claimed');
+    final claimedIds = claimed.map((e) => e['id'] as String).toSet();
+    final freshClaims = claimed
+        .where((e) => !_seenClaimed.contains(e['id']))
+        .toList();
+    _seenClaimed
+      ..retainAll(claimedIds)
+      ..addAll(claimedIds);
     if (!_pushEnabled) {
       Ringer.stopAll();
       return;
+    }
+    if (isWindows) {
+      for (final booking in fresh) {
+        unawaited(
+          showDesktopOrderNotification(
+            id: booking['id'] as String,
+            isClaim: false,
+          ),
+        );
+      }
+      for (final claim in freshClaims) {
+        unawaited(
+          showDesktopOrderNotification(
+            id: claim['id'] as String,
+            isClaim: true,
+          ),
+        );
+      }
     }
     _snoozed.retainAll(claimed.map((e) => e['id'] as String).toSet());
     final active = claimed.where((e) => !_snoozed.contains(e['id'])).toList();
@@ -175,15 +209,17 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    if (_dialogFor != null) return;
-    if (active.isNotEmpty) {
-      _show(active.first['id'] as String, claim: true);
-    } else if (fresh.isNotEmpty) {
+    if (active.isEmpty && fresh.isNotEmpty) {
       Ringer.notifyOnce(
         source: _ringSource('new_ring_path'),
         mode: '${_pulse['new_ring_mode'] ?? 'once'}',
         seconds: (_pulse['new_ring_seconds'] as num? ?? 10).toInt(),
       );
+    }
+    if (_dialogFor != null) return;
+    if (active.isNotEmpty) {
+      _show(active.first['id'] as String, claim: true);
+    } else if (fresh.isNotEmpty) {
       _show(fresh.first['id'] as String, claim: false);
     }
   }
@@ -331,7 +367,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 Text(
                   _pushError ??
                       (_pushEnabled
-                          ? 'مفعّل — هتوصلك إشعارات الطلبات والتحويلات'
+                          ? (isWindows
+                                ? 'مفعّل — تنبيهات محلية أثناء تشغيل التطبيق'
+                                : 'مفعّل — هتوصلك إشعارات الطلبات والتحويلات')
                           : 'متوقف — فعّله عشان توصلك إشعارات الطلبات'),
                   style: TextStyle(
                     color: _pushError != null

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -16,7 +18,9 @@ String loginEmail(String input) {
 String authErrorText(Object e) {
   if (e is AuthException) {
     final m = '${e.code ?? ''} ${e.message}'.toLowerCase();
-    if (m.contains('weak') || m.contains('at least') || m.contains('characters')) return 'كلمة السر ضعيفة — 8 حروف على الأقل.';
+    if (m.contains('weak') || m.contains('at least') || m.contains('characters')) {
+      return 'كلمة السر مطلوبة وبحد أقصى 72 بايت.';
+    }
     if (m.contains('same') && m.contains('password')) return 'كلمة السر الجديدة لازم تكون مختلفة عن القديمة.';
     if (m.contains('invalid login') || m.contains('credentials')) return 'كلمة السر الحالية غلط.';
     if (m.contains('rate') || m.contains('too many')) return 'محاولات كتير — استنى شوية.';
@@ -37,8 +41,8 @@ Widget _pass(TextEditingController c, String label) => Padding(
     );
 
 String? _checkNew(String p1, String p2) {
-  if (p1.length < 8) return 'كلمة السر 8 حروف على الأقل.';
-  if (p1.toLowerCase() == 'admin' || p1 == '12345678') return 'اختار كلمة سر أصعب.';
+  if (p1.isEmpty) return 'اكتب كلمة السر.';
+  if (utf8.encode(p1).length > 72) return 'كلمة السر بحد أقصى 72 بايت.';
   if (p1 != p2) return 'كلمتين السر مش زي بعض.';
   return null;
 }
@@ -101,7 +105,7 @@ class _ForceChangePasswordScreenState extends State<ForceChangePasswordScreen> {
                 const Text('اختار كلمة سر جديدة', textAlign: TextAlign.center, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
                 const Text(
-                  'إنت داخل بكلمة سر مؤقتة. عشان محدش غيرك يقدر يدخل ويشوف أرقام الزباين ويأكد حجوزات، اختار كلمة سر خاصة بيك (8 حروف على الأقل).',
+                  'إنت داخل بكلمة سر مؤقتة. عشان محدش غيرك يقدر يدخل ويشوف أرقام الزباين ويأكد حجوزات، اختار كلمة سر خاصة بيك بيك.',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.white70),
                 ),
@@ -137,7 +141,7 @@ Future<void> changePassword(BuildContext context) async {
           width: 380,
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             _pass(cur, 'كلمة السر الحالية'),
-            _pass(p1, 'كلمة السر الجديدة (8+)'),
+            _pass(p1, 'كلمة السر الجديدة'),
             _pass(p2, 'اكتبها تاني'),
             if (err != null) Text(err!, style: const TextStyle(color: Color(0xFFFCA5A5))),
           ]),

@@ -12,7 +12,9 @@ PSQL="sudo docker exec -i maka-db psql -At -v ON_ERROR_STOP=1 -U supabase_admin 
 
 printf 'Password for %s: ' "$USER_IN"
 stty -echo; read -r PASS; stty echo; echo
-[ ${#PASS} -ge 5 ] || { echo "password too short (5+)" >&2; exit 1; }
+[ -n "$PASS" ] || { echo "password must not be empty" >&2; exit 1; }
+PASS_BYTES="$(printf '%s' "$PASS" | wc -c | tr -d ' ')"
+[ "$PASS_BYTES" -le 72 ] || { echo "password exceeds bcrypt's 72-byte limit" >&2; exit 1; }
 
 EXISTS="$(printf '%s\n' "SELECT count(*) FROM auth.users WHERE lower(email) = lower(:'e');" | $PSQL -v e="$EMAIL")"
 

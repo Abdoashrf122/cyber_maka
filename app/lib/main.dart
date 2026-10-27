@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:window_manager/window_manager.dart';
@@ -45,6 +46,21 @@ class MakaApp extends StatelessWidget {
     return MaterialApp(
       title: 'سيبر مكة',
       debugShowCheckedModeBanner: false,
+      builder: (context, child) => Focus(
+        autofocus: true,
+        onKeyEvent: (_, event) {
+          if (isWindows && event is KeyDownEvent) {
+            Ringer.stopAll();
+          }
+          return KeyEventResult.ignored;
+        },
+        child: Listener(
+          onPointerDown: (_) {
+            if (isWindows) Ringer.stopAll();
+          },
+          child: child ?? const SizedBox.shrink(),
+        ),
+      ),
       locale: const Locale('ar'),
       supportedLocales: const [Locale('ar')],
       localizationsDelegates: const [
