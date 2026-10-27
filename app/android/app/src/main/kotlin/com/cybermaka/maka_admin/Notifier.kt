@@ -57,17 +57,27 @@ object Notifier {
 
     fun service(ctx: Context, text: String): Notification =
         Notification.Builder(ctx, CH_SERVICE)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_onesignal_default)
             .setContentTitle("سيبر مكة")
             .setContentText(text)
             .setOngoing(true)
             .setContentIntent(openApp(ctx))
             .build()
 
+    fun updateService(ctx: Context, receiveOrders: Boolean) {
+        val text = if (receiveOrders) {
+            "شغال — بيستقبل الحجوزات"
+        } else {
+            "شغال — استقبال الطلبات متوقف"
+        }
+        ctx.getSystemService(NotificationManager::class.java)
+            .notify(ID_SERVICE, service(ctx, text))
+    }
+
     /** طلب جديد: الإشعار يظل ظاهرًا حتى بعد انتهاء الصوت. */
     fun newRequest(ctx: Context, codes: List<String>) {
         val n = Notification.Builder(ctx, CH_NEW)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_onesignal_default)
             .setContentTitle(if (codes.size == 1) "طلب حجز جديد" else "${codes.size} طلبات حجز جديدة")
             .setContentText(codes.joinToString("، ") { "#$it" } + " — افتح واقبل أو ارفض")
             .setCategory(Notification.CATEGORY_MESSAGE)
@@ -88,7 +98,7 @@ object Notifier {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val n = Notification.Builder(ctx, CH_RING)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_onesignal_default)
             .setContentTitle(if (codes.size == 1) "العميل حوّل الـ deposit 💰" else "${codes.size} عملاء حوّلوا الـ deposit 💰")
             .setContentText(codes.joinToString("، ") { "#$it" } + " — اتأكد إن الفلوس وصلت وأكّد الحجز")
             .setCategory(Notification.CATEGORY_MESSAGE)
@@ -105,7 +115,7 @@ object Notifier {
 
     fun info(ctx: Context, title: String, text: String) {
         val n = Notification.Builder(ctx, CH_INFO)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_onesignal_default)
             .setContentTitle(title)
             .setContentText(text)
             .setContentIntent(openApp(ctx))

@@ -37,6 +37,19 @@ class MainActivity : FlutterActivity() {
                     Notifier.stopRing(this)
                     result.success(true)
                 }
+                "setReceiveOrders" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    prefs.receiveOrders = enabled
+                    if (MakaService.isRunning) Notifier.updateService(this, enabled)
+                    if (!enabled) {
+                        prefs.ringingIds = emptySet()
+                        AlertAudio.stop("new")
+                        AlertAudio.stop("claim")
+                        Notifier.clearNewRequest(this)
+                        Notifier.stopRing(this)
+                    }
+                    result.success(true)
+                }
                 "ensureRunning" -> {
                     if (prefs.ready && !MakaService.isRunning) MakaService.start(this)
                     result.success(prefs.ready)

@@ -24,6 +24,10 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _lastChange;
   int _reload = 0;
   bool _offline = false;
+  bool _pushEnabled = false;
+  bool _pushLoading = true;
+  bool _pushBusy = false;
+  String? _pushError;
   final Set<String> _snoozed = {};
   final Set<String> _seenPending = {};
   String? _dialogFor;
@@ -32,7 +36,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     ensureDeviceRegistered().catchError((_) {});
-    initPush();
+    _loadPushPreference();
     _tick();
     _poll = Timer.periodic(const Duration(seconds: 5), (_) => _tick());
   }
@@ -47,6 +51,66 @@ class _HomeScreenState extends State<HomeScreen> {
   void refresh() {
     setState(() => _reload++);
     _tick();
+  }
+
+  Future<void> _loadPushPreference() async {
+    try {
+      if (isAndroid) await initPush();
+      final enabled = await rpc('admin_push_enabled');
+      if (enabled is! bool) throw StateError('تعذر قراءة إعداد استقبال الطلبات.');
+      if (isAndroid) {
+        if (enabled) await requestOrderPushPermissionIfNeeded();
+        await Native.call('setReceiveOrders', {'enabled': enabled});
+      }
+      if (!mounted) return;
+      setState(() {
+        _pushEnabled = enabled;
+        _pushError = null;
+        _pushLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _pushError = 'تعذر تحميل حالة استقبال الطلبات: $e';
+        _pushLoading = false;
+      });
+    }
+  }
+
+  Future<void> _setPushEnabled(bool enabled) async {
+    if (_pushBusy || _pushLoading) return;
+    setState(() => _pushBusy = true);
+    try {
+      if (enabled && !await requestOrderPushPermission()) {
+        if (mounted) {
+          toast(
+            context,
+            'تعذر تفعيل الإشعارات. تأكد من إعداد OneSignal واسمح بالإشعارات.',
+            error: true,
+          );
+        }
+        return;
+      }
+      await rpcOk('admin_set_push_enabled', {'p_enabled': enabled});
+      if (isAndroid) {
+        await Native.call('setReceiveOrders', {'enabled': enabled});
+      }
+      if (!mounted) return;
+      setState(() {
+        _pushEnabled = enabled;
+        _pushError = null;
+      });
+      toast(
+        context,
+        enabled ? 'استقبال طلبات الحجز اتفعل' : 'استقبال طلبات الحجز اتوقف',
+      );
+    } catch (e) {
+      if (mounted) {
+        toast(context, 'مقدرناش نغيّر استقبال الطلبات: $e', error: true);
+      }
+    } finally {
+      if (mounted) setState(() => _pushBusy = false);
+    }
   }
 
   Future<void> _tick() async {
@@ -94,6 +158,10 @@ class _HomeScreenState extends State<HomeScreen> {
       ..addAll(fresh.map((e) => e['id'] as String));
 
     final claimed = _list('claimed');
+    if (!_pushEnabled) {
+      Ringer.stopAll();
+      return;
+    }
     _snoozed.retainAll(claimed.map((e) => e['id'] as String).toSet());
     final active = claimed.where((e) => !_snoozed.contains(e['id'])).toList();
     if (active.isEmpty) {
@@ -176,6 +244,7 @@ class _HomeScreenState extends State<HomeScreen> {
               textAlign: TextAlign.center,
             ),
           ),
+        _pushControl(),
         Expanded(child: pages[_tab]),
       ],
     );
@@ -232,6 +301,74 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
     );
   }
+
+  Widget _pushControl() => Card(
+    margin: const EdgeInsetsDirectional.fromSTEB(12, 8, 12, 4),
+    color: _pushEnabled
+        ? const Color(0xFF172D2A)
+        : const Color(0xFF1B1B30),
+    child: Padding(
+      padding: const EdgeInsetsDirectional.fromSTEB(14, 4, 8, 4),
+      child: Row(
+        children: [
+          Icon(
+            _pushEnabled
+                ? Icons.notifications_active_rounded
+                : Icons.notifications_off_outlined,
+            color: _pushEnabled
+                ? const Color(0xFF4ADE80)
+                : Colors.white54,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'استلام طلبات الحجز',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                Text(
+                  _pushError ??
+                      (_pushEnabled
+                          ? 'مفعّل — هتوصلك إشعارات الطلبات والتحويلات'
+                          : 'متوقف — فعّله عشان توصلك إشعارات الطلبات'),
+                  style: TextStyle(
+                    color: _pushError != null
+                        ? const Color(0xFFFCA5A5)
+                        : Colors.white60,
+                    fontSize: 12,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          if (_pushLoading || _pushBusy)
+            const Padding(
+              padding: EdgeInsets.all(12),
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          else if (_pushError != null)
+            IconButton(
+              tooltip: 'إعادة المحاولة',
+              onPressed: _loadPushPreference,
+              icon: const Icon(Icons.refresh),
+            )
+          else
+            Switch.adaptive(
+              value: _pushEnabled,
+              onChanged: _setPushEnabled,
+            ),
+        ],
+      ),
+    ),
+  );
 
   Widget _badge(_Dest d) => Badge(
     isLabelVisible: d.count > 0,

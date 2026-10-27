@@ -56,7 +56,14 @@ class MakaService : Service() {
     override fun onCreate() {
         super.onCreate()
         Notifier.channels(this)
-        val n = Notifier.service(this, "شغال — بيستقبل الحجوزات")
+        val n = Notifier.service(
+            this,
+            if (MakaPrefs(this).receiveOrders) {
+                "شغال — بيستقبل الحجوزات"
+            } else {
+                "شغال — استقبال الطلبات متوقف"
+            },
+        )
         if (Build.VERSION.SDK_INT >= 34) {
             startForeground(Notifier.ID_SERVICE, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
@@ -122,6 +129,11 @@ class MakaService : Service() {
         }
         prefs.lastError = ""
         prefs.lastPulseAt = System.currentTimeMillis()
+        val receiveOrders = res.optBoolean("receive_orders", false)
+        if (prefs.receiveOrders != receiveOrders) {
+            prefs.receiveOrders = receiveOrders
+            Notifier.updateService(this, receiveOrders)
+        }
         prefs.packages = toSet(res.optJSONArray("notif_packages")) ?: prefs.packages
         prefs.senders = toSet(res.optJSONArray("sms_senders")) ?: prefs.senders
         prefs.autoNotif = res.optBoolean("auto_notifications", true)
@@ -137,7 +149,7 @@ class MakaService : Service() {
         val pending = items(res.optJSONArray("pending"))
         val pendingIds = pending.map { it.first }.toSet()
         val fresh = pending.filter { it.first !in prefs.seenPending }
-        if (fresh.isNotEmpty()) {
+        if (prefs.receiveOrders && fresh.isNotEmpty()) {
             Notifier.newRequest(this, pending.map { it.second })
             AlertAudio.play(
                 this,
@@ -158,7 +170,11 @@ class MakaService : Service() {
         val claimed = items(res.optJSONArray("claimed"))
         val claimedIds = claimed.map { it.first }.toSet()
         prefs.snoozed = prefs.snoozed.intersect(claimedIds)
-        val active = claimed.filter { it.first !in prefs.snoozed }
+        val active = if (prefs.receiveOrders) {
+            claimed.filter { it.first !in prefs.snoozed }
+        } else {
+            emptyList()
+        }
         val activeIds = active.map { it.first }.toSet()
         if (activeIds.isEmpty()) {
             if (prefs.ringingIds.isNotEmpty()) {

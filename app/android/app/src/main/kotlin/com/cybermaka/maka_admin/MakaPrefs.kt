@@ -20,6 +20,9 @@ class MakaPrefs(ctx: Context) {
     var enabled: Boolean
         get() = p.getBoolean("enabled", false)
         set(v) = p.edit().putBoolean("enabled", v).apply()
+    var receiveOrders: Boolean
+        get() = p.getBoolean("receive_orders", false)
+        set(v) = p.edit().putBoolean("receive_orders", v).apply()
     var lastPulseAt: Long
         get() = p.getLong("last_pulse_at", 0)
         set(v) = p.edit().putLong("last_pulse_at", v).apply()

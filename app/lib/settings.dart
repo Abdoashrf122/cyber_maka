@@ -904,7 +904,7 @@ class _ThisPhoneCardState extends State<ThisPhoneCard>
             _row(
               _st['notificationAccess'] == true,
               'قراية إشعارات التحويل',
-              'افتح الإعدادات وفعّل «أدمن سيبر مكة». لو الاختيار رمادي: من معلومات التطبيق ⋮ ← «السماح بالإعدادات المحظورة» الأول.',
+              'افتح الإعدادات وفعّل «سيبر مكة». لو الاختيار رمادي: من معلومات التطبيق ⋮ ← «السماح بالإعدادات المحظورة» الأول.',
               button: 'فعّل',
               onTap: () => Native.call('openNotificationAccess'),
             ),

@@ -59,6 +59,8 @@ String errorText(String code) =>
       'bad_state': 'حالة الطلب اتغيرت — اتحدّثت القايمة.',
       'full': 'المكان اتحجز بالفعل في الميعاد ده.',
       'not_found': 'مش موجود (ممكن اتمسح).',
+      'push_not_configured':
+          'إشعارات OneSignal مش متوصلة على السيرفر لسه.',
       'already_linked': 'التحويل ده متربط بحجز بالفعل.',
       'bad_name': 'الاسم قصير أوي.',
       'bad_username':

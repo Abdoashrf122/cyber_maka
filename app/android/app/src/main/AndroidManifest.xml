@@ -12,9 +12,10 @@
     <uses-permission android:name="android.permission.RECEIVE_SMS"/>
 
     <application
-        android:label="أدمن سيبر مكة"
+        android:label="سيبر مكة"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:allowBackup="false">
         <activity
             android:name=".MainActivity"
@@ -76,6 +77,9 @@
         <meta-data
             android:name="com.onesignal.NotificationServiceExtension"
             android:value="com.cybermaka.maka_admin.MakaPushExtension" />
+        <meta-data
+            android:name="com.onesignal.NotificationSmallIcon"
+            android:resource="@drawable/ic_stat_onesignal_default" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
